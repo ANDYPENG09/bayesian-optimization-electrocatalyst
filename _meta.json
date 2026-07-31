@@ -1,0 +1,18 @@
+{
+  "name": "bayesian-optimization-electrocatalyst",
+  "version": "1.0.0",
+  "author": "Yu Peng",
+  "license": "MIT",
+  "description": "Bayesian optimization closed-loop skill for electrocatalyst development: GP surrogate (Matern 5/2 + ARD), EI/PI/UCB acquisition, constrained/batch/multiobjective extensions, with TRACE call-chain observability.",
+  "tags": [
+    "bayesian-optimization",
+    "electrocatalyst",
+    "gaussian-process",
+    "materials-informatics",
+    "experiment-design"
+  ],
+  "entry": "scripts/bo_pipeline.py",
+  "homepage": "https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst",
+  "repository": "https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst",
+  "min_workbuddy_version": "1.0.0"
+}

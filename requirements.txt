@@ -1,0 +1,6 @@
+# Bayesian Optimization for Electrocatalyst Development
+scikit-optimize>=0.9.0
+pyyaml>=6.0
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10

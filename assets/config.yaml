@@ -1,0 +1,48 @@
+# Bayesian Optimization electcatalyst config
+# Each variable is a decision dimension of the search space X (Garnett Ch.1).
+variables:
+  - {name: T_C,    type: real, low: 500,  high: 900}   # heat-treatment / reaction T
+  - {name: t_h,   type: real, low: 0.5,  high: 6}     # hold time (h)
+  - {name: pH,    type: real, low: 0.0,  high: 2.0}    # electrolyte pH
+  - {name: E_V,   type: real, low: 1.45, high: 1.60}  # applied potential (V vs RHE)
+  - {name: m_cat, type: real, low: 0.10, high: 0.50}  # catalyst loading mg/cm^2
+  - {name: x_M1,  type: real, low: 0.30, high: 0.70}  # metal-1 mole fraction
+
+# Objective (Garnett §6 simple reward). Multiobjective via weighted scalarization
+# (a pragmatic surrogate for Pareto-frontier search, §11.7).
+objective:
+  metrics:
+    mass_activity: {direction: max, weight: 0.40, scale: 250.0}   # A/g
+    eta_10mA:      {direction: min, weight: 0.30, scale: 30.0}    # mV -> negated
+    tafel:         {direction: min, weight: 0.15, scale: 8.0}     # mV/dec -> negated
+    FE:            {direction: max, weight: 0.15, scale: 0.04}     # 0-1
+  aggregation: weighted_sum
+
+# Inequality constraints g(x) <= 0 (Garnett §11.2). direction: le = value<=threshold; ge = value>=threshold.
+constraints:
+  - {name: stability_100h_loss, direction: le, threshold: 0.10}   # <10% decay
+  - {name: cost,                direction: le, threshold: 6.0}    # cost cap
+
+# Acquisition (Garnett Ch.7-8). EI default; UCB uses beta; PI uses xi margin.
+acquisition:
+  default: EI
+  ei_xi: 0.01       # improvement margin (Garnett 7.5)
+  ucb_beta: 2.0     # exploration parameter (Garnett 8.25)
+
+# Convergence (Garnett §10): incumbent stagnation + EI magnitude.
+convergence:
+  k_rounds_no_gain: 3
+  relative_tol: 1.0e-3
+  ei_tol: 1.0e-3
+
+# Initial DoE (Garnett §1, before GP posterior is informative).
+initial_doe:
+  method: lhs            # latin hypercube / fractional factorial
+  n_points: 9
+  n_replicates: 0
+
+# Kernel
+kernel:
+  family: matern
+  nu: 2.5               # 5/2 — Garnett §3.3 off-the-shelf choice
+  ard: true             # per-dimension length scales -> descriptor screening
