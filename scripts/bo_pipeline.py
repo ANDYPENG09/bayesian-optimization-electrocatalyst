@@ -12,7 +12,7 @@ Grounded in Roman Garnett, "Bayesian Optimization" (Cambridge Univ. Press):
   - Acquisition optimization (§9.2): skopt's global optimizer
   - Constrained (§11.2), batch (§11.3), multiobjective (§11.7) via scalarization/EHVI-lite
 
-Mirrors the user's prior bo_ptco_round1.py pattern (skopt GP+EI, PtCo ordering degree S).
+Designed for electrocatalyst optimization (e.g. PtCo ordering degree S as objective).
 Run:  python bo_pipeline.py --data assets/experiment_template.csv --config assets/config.yaml
 """
 from __future__ import annotations

@@ -1,0 +1,63 @@
+# PtCo L1o BO — literature-based synthetic example
+#
+# This config is a SYNTHETIC example based on published literature parameter
+# ranges for PtCo/C alloy electrocatalyst heat-treatment optimization. It
+# contains NO proprietary or personal experimental data.
+#
+# Literature basis (parameter ranges, not specific results):
+#   - PtCo/C alloying & L1o ordering: T_alloy 600-900 C (Wang et al., JES 2018;
+#     Min et al., ACS Catal 2014; Chung et al., Science 2015)
+#   - Reduction / atmosphere: H2/Ar 5-10%, T_red 400-700 C
+#   - Slow-cool ordering window: through ~833 C (L1o critical temp)
+#   - Pt loading: 20-40 wt% (typical DOE/industry range)
+#   - Particle size constraint: < 8 nm for electrochemical performance
+#   - ECSA & mass-activity ranges from the above literature
+
+metadata:
+  campaign: PtCo_L1o_literature_synthetic_example
+  date: "2026-08-01"
+  data_origin: synthetic — parameter ranges from published literature only
+  notes: >
+    All values are synthetic, generated within published literature parameter
+    ranges. No proprietary or personal experimental data is included.
+
+# --- Design variables (7-D) ---
+variables:
+  - {name: T_red_C,   type: real, low: 400.0, high: 700.0, unit: "degC", description: "Reduction temperature (5% H2/Ar)"}
+  - {name: t_red_h,   type: real, low: 0.5,   high: 4.0,   unit: h,     description: "Reduction hold time"}
+  - {name: T_alloy_C, type: real, low: 600.0, high: 900.0, unit: "degC", description: "Alloying temperature"}
+  - {name: t_alloy_h, type: real, low: 0.5,   high: 5.0,   unit: h,     description: "Alloying hold time"}
+  - {name: r_cool,    type: real, low: 0.5,   high: 5.0,   unit: "degC/min", description: "Cooling rate through ordering window"}
+  - {name: Pt_wt_pct, type: real, low: 20.0,  high: 40.0,  unit: wt%,   description: "Pt loading (wt%)"}
+  - {name: m_cat,     type: real, low: 0.10,  high: 0.40,  unit: "mg/cm2", description: "Catalyst loading"}
+
+# --- Objective (priority: electrochem > ordering > size) ---
+objective:
+  metrics:
+    mass_activity:   {direction: max, weight: 0.40, scale: 0.60}   # A/mg_Pt (lit range 0.1-0.8)
+    ECSA:            {direction: max, weight: 0.30, scale: 60.0}    # m2/g_Pt (lit range 30-80)
+    ordering_S:      {direction: max, weight: 0.20, scale: 60.0}    # % L1o fraction (lit 0-70%)
+    XRD_size_nm:     {direction: min, weight: 0.10, scale: 8.0}     # nm (lit 3-12)
+
+# --- Constraints (Garnett 11.2) ---
+constraints:
+  - {name: XRD_size_nm, threshold: 8.0, direction: le}   # particle control
+  - {name: ordering_S,  threshold: 20.0, direction: ge}  # minimum ordering
+
+# --- Acquisition ---
+acquisition:
+  default: EI
+  xi: 0.01
+  beta: 2.0
+
+# --- Convergence ---
+convergence:
+  k_rounds_no_gain: 3
+  relative_tol: 1.0e-3
+  ei_tol: 1.0e-3
+
+# --- Kernel ---
+kernel:
+  family: matern
+  nu: 2.5
+  ard: true

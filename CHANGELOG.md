@@ -12,7 +12,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follo
 - Constrained (§11.2), batch (§11.3), and multiobjective scalarization (§11.7) support.
 - TRACE call-chain observability (`trace_utils.py`) emitted as `trace.json`.
 - Multi-source data ingestion (`data_io.py`): CSV, WorkBuddy memory logs, Notion pages, ima knowledge base.
-- Assets: synthetic template config/data + real PtCo L1₀ campaign config (9-D, corrected priority) & data.
+- Assets: synthetic template config/data + literature-based PtCo L1₀ example config (7-D) & synthetic seed data (no proprietary data).
 - Theory reference manual (`references/bo_theory.md`) with Garnett formula numbers.
 - Electrocatalyst metrics & constraint encoding (`references/electrocatalyst_metrics.md`).
 - CLI: `--data --config --acq --beta --xi --batch --seed --out --trace [--no-trace]`.

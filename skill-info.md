@@ -53,8 +53,8 @@ bayesian-optimization-electrocatalyst/
 └── assets/
 	├── config.yaml           通用变量 / 目标 / 约束 / 采集参数
 	├── experiment_template.csv  9 点合成种子数据（无个人数据）
-	├── config_ptco_v2.yaml   PtCo L1₀ 真实案例配置（9-D）
-	└── experiment_ptco_v2.csv  PtCo 真实 7 点数据（脱敏合成版本）
+	├── config_ptco_example.yaml   PtCo L1₀ 文献参数示例配置（7-D，合成）
+	└── experiment_ptco_example.csv  PtCo 9 点合成种子数据（文献参数范围）
 ```
 
 ## 版本

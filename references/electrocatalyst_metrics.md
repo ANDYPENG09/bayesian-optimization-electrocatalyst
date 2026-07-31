@@ -56,6 +56,6 @@
 - 不同批次/天作区组（block）协变量，消除漂移（对应原著 §2 协方差区组）。
 
 ## 6. 与既有资产对接
-- **xrd-rasx-ptco-analysis 技能**：从 RASX XRD 计算 PtCo L1₀ 有序度 S 与 Scherrer 晶粒尺寸 → S 可直接作 BO 目标（用户既有 bo_ptco_round1.py 以 S 为目标，最佳 700°C×2h）。
+- **XRD 表征**：从 XRD 数据计算合金有序度（如 PtCo L1₀ 有序度 S）与 Scherrer 晶粒尺寸 → S 可直接作 BO 目标。任何标准 XRD 分析工具（Rietveld 精修、Scherrer 公式、专业分析软件如 HighScore、Profex 等）均可。
 - **ima 知识库**：催化剂文献/材料数据库可提供先验描述符范围与初始采样点。
 - **Notion 日志 / workbuddy 任务历史**：沉淀历次实验记录（条件→指标），作历史数据池喂入 BO。

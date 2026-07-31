@@ -70,7 +70,7 @@ Tune ξ (EI/PI margin) and β (UCB exploration) in config. UCB↔PI duality (§8
 
 ### Step 4 — Experiment & feedback
 1. Synthesize/characterize the recommended sample.
-2. Measure target metrics (≥3 replicates → mean + noise variance). For PtCo ordering, reuse the **`xrd-rasx-ptco-analysis`** skill to get ordering degree S / Scherrer size; for OER/HER use standard electrochemistry (ECSA, η@10mA, Tafel, FE).
+2. Measure target metrics (≥3 replicates → mean + noise variance). For alloy ordering degree (e.g. PtCo L1₀ fraction S), use standard XRD Rietveld/Scherrer analysis; for OER/HER use standard electrochemistry (ECSA, η@10mA, Tafel, FE).
 3. Append the row to the CSV; re-run `bo_pipeline.py` — the GP posterior updates and the loop closes.
 
 ### Step 5 — Convergence & recommendation
@@ -107,16 +107,16 @@ python scripts/bo_pipeline.py \
 
 ### references/
 - `bo_theory.md` — Garnett-derived theory manual (GP, posterior moments, Matern, marginal likelihood, EI/PI/UCB closed forms, acquisition optimization, constrained/batch/multiobjective, convergence) with formula numbers.
-- `electrocatalyst_metrics.md` — electrochemistry objectives & constraints (ECSA, overpotential, Tafel, mass/specific activity, FE, TOF, stability, cost) with direction and BO encoding; ties into `xrd-rasx-ptco-analysis`.
+- `electrocatalyst_metrics.md` — electrochemistry objectives & constraints (ECSA, overpotential, Tafel, mass/specific activity, FE, TOF, stability, cost) with direction and BO encoding.
 
 ### assets/
-- `experiment_template.csv` — standard schema with 9 seed runs (PtCo-style heat-treat grid).
+- `experiment_template.csv` — standard schema with 9 synthetic seed runs (heat-treat grid).
 - `config.yaml` — variables, objective weights, constraints, acquisition params, convergence thresholds, kernel choice.
-- `config_ptco_v2.yaml` — real PtCo L1₀ ordering campaign config (9-D, corrected priorities).
-- `experiment_ptco_v2.csv` — 7 real PtCo runs (alloying grid, MA/ECSA/ordering targets).
+- `config_ptco_example.yaml` — literature-based synthetic PtCo L1₀ ordering example config (7-D, parameter ranges from published literature).
+- `experiment_ptco_example.csv` — 9 synthetic PtCo seed runs (literature-range values, no proprietary data).
 
 ## Integration notes
-- **PtCo L1₀ ordering campaign** (existing PtCo ordering workflow): set objective to ordering degree S (from `xrd-rasx-ptco-analysis`); variables = heat-treat T, hold time, ramp/cool rate, atmosphere ratio. The template CSV mirrors this (best historical 700°C×2h).
+- **PtCo L1₀ ordering** (literature-based example): objective = ordering degree S (from standard XRD analysis); variables = heat-treat T, hold time, ramp/cool rate, Pt loading; see `assets/config_ptco_example.yaml`.
 - **IrOₓ OER** (HZB-style): objective = mass_activity / −η@10mA multiobjective; constraints = stability, cost; DoE = 2^(5−1) fractional factorial seed before BO.
 - Token/credit awareness: prefer running `bo_pipeline.py` directly (deterministic, no LLM calls) and only loading `references/*` when the agent needs to reason about theory or debug the model.
 

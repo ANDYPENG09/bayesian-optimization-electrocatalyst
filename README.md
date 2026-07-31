@@ -62,15 +62,15 @@ Append the measured result of the recommended experiment to the CSV and re-run t
 │   ├── trace_utils.py           TRACE call-chain recorder
 │   └── data_io.py               CSV / WorkBuddy / Notion / ima multi-source merge
 └── assets/
-    ├── config.yaml              generic campaign config
-    ├── experiment_template.csv  9-point synthetic seed data
-    ├── config_ptco_v2.yaml      real PtCo L1₀ campaign config (9-D)
-    └── experiment_ptco_v2.csv   real PtCo runs (synthetic-safe seed rows)
+    ├── config.yaml                   generic campaign config
+    ├── experiment_template.csv       9-point synthetic seed data
+    ├── config_ptco_example.yaml      literature-based PtCo L1₀ example config (7-D)
+    └── experiment_ptco_example.csv   9 synthetic PtCo seed runs (literature-range)
 ```
 
 ## Use cases
 
-- **PtCo L1₀ ordering**: objective = ordering degree S (from `xrd-rasx-ptco-analysis`), variables = heat-treat T / hold / ramp-cool rate / atmosphere; see `assets/config_ptco_v2.yaml`.
+- **PtCo L1₀ ordering**: objective = ordering degree S (from standard XRD analysis), variables = heat-treat T / hold / ramp-cool rate / Pt loading; see `assets/config_ptco_example.yaml`.
 - **IrOₓ OER**: multi-objective mass-activity / −η@10mA, constraints stability & cost; seed with a 2⁵⁻¹ fractional-factorial DoE before BO.
 - **Descriptor screening**: ARD length scales auto-rank weak descriptors.
 
