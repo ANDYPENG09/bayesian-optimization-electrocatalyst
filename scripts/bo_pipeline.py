@@ -1,355 +1,346 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Yu Peng
-"""
-Bayesian Optimization closed-loop pipeline for electrocatalyst development.
-
-Grounded in Roman Garnett, "Bayesian Optimization" (Cambridge Univ. Press):
-  - GP surrogate (Ch.2-3), Matern 5/2 kernel (off-the-shelf, §3.3)
-  - Acquisition: EI (§7.3/8.2), PI (§7.5/8.3), UCB (§7.8/8.4)
-  - Hyperparameter: marginal-likelihood MAP (§4.3) via skopt GP
-  - Acquisition optimization (§9.2): skopt's global optimizer
-  - Constrained (§11.2), batch (§11.3), multiobjective (§11.7) via scalarization/EHVI-lite
-
-Designed for electrocatalyst optimization (e.g. PtCo ordering degree S as objective).
-Run:  python bo_pipeline.py --data assets/experiment_template.csv --config assets/config.yaml
-"""
+"""GP experiment planning. Batch selection is a separation heuristic, not q-EI."""
 from __future__ import annotations
-import argparse, json, sys, os, math, warnings
+import argparse, itertools, json, math, os, sys, warnings
 from dataclasses import dataclass, asdict
-from typing import Optional
-
 import numpy as np
 import pandas as pd
 import yaml
-from scipy.stats import norm as _norm  # vectorized pdf/cdf (Garnett Φ, φ)
-
-# skopt gives a GP surrogate with Matern + marginal-likelihood hyperparameter fit
-try:
-    from skopt import Optimizer
-    from skopt.space import Real, Integer, Categorical
-    from skopt.acquisition import gaussian_ei, gaussian_pi
-    HAS_SKOPT = True
-except Exception:  # pragma: no cover
-    HAS_SKOPT = False
-
-# make sibling scripts importable when run as `python scripts/bo_pipeline.py`
+from scipy.stats import norm
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
+from skopt.space import Real, Integer, Categorical, Space
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from trace_utils import TraceRecorder
 
 
-# ----------------------------- data I/O -----------------------------
-def load_data(path: str) -> pd.DataFrame:
+def load_data(path):
     df = pd.read_csv(path)
-    # tolerate trailing whitespace in headers
     df.columns = [c.strip() for c in df.columns]
+    if df.columns.duplicated().any():
+        raise ValueError('Duplicate CSV column names')
     return df
 
 
-def build_space(config: dict):
-    """Build skopt search space from config['variables']."""
-    space = []
-    for v in config["variables"]:
-        t = v.get("type", "real")
-        if t == "real":
-            space.append(Real(low=float(v["low"]), high=float(v["high"]), name=v["name"]))
-        elif t == "int":
-            space.append(Integer(low=int(v["low"]), high=int(v["high"]), name=v["name"]))
-        elif t == "cat":
-            space.append(Categorical(categories=v["categories"], name=v["name"]))
+def build_space(config):
+    dims, names = [], set()
+    for v in config['variables']:
+        name, kind = v['name'], v.get('type', 'real')
+        if not isinstance(name, str) or not name.strip() or name in names:
+            raise ValueError('Variables require unique, nonempty names')
+        names.add(name)
+        if kind == 'cat':
+            cats = v['categories']
+            if not cats or len(set(cats)) != len(cats) or any(
+                not isinstance(x, (str, int, float, bool)) or
+                (isinstance(x, (int, float)) and not math.isfinite(x)) for x in cats):
+                raise ValueError('Categories must be unique finite JSON scalars')
+            dims.append(Categorical(cats, name=name, transform='onehot'))
+        elif kind in ('real', 'int'):
+            lo, hi = float(v['low']), float(v['high'])
+            if not np.isfinite([lo, hi]).all() or lo >= hi:
+                raise ValueError('Invalid variable bounds')
+            if kind == 'int' and (not lo.is_integer() or not hi.is_integer()):
+                raise ValueError('Integer bounds must be integers')
+            cls = Integer if kind == 'int' else Real
+            dims.append(cls(int(lo) if kind == 'int' else lo, int(hi) if kind == 'int' else hi,
+                            name=name, transform='normalize'))
         else:
-            raise ValueError(f"unknown var type {t}")
-    return space
+            raise ValueError(f'Unknown variable type: {kind}')
+    if not dims:
+        raise ValueError('Configure at least one variable')
+    return dims
 
 
-def objective_vector(df: pd.DataFrame, config: dict) -> np.ndarray:
-    """Return maximization-direction objective values per row.
+def validate_point(point, dims):
+    if len(point) != len(dims):
+        raise ValueError('Wrong number of variables')
+    out = []
+    for x, d in zip(point, dims):
+        if isinstance(d, Categorical):
+            if x not in d.categories:
+                raise ValueError(f'Unknown category for {d.name}')
+            out.append(x.item() if isinstance(x, np.generic) else x)
+        else:
+            if isinstance(x, bool):
+                raise ValueError(f'{d.name} must be numeric')
+            x = float(x)
+            if not np.isfinite(x) or not d.low <= x <= d.high or (isinstance(d, Integer) and not x.is_integer()):
+                raise ValueError(f'{d.name} must be finite, in bounds, and match its type')
+            out.append(int(x) if isinstance(d, Integer) else x)
+    return out
 
-    Metrics flagged direction='min' are negated (Garnett maximizes utility).
-    Supports scalarized multiobjective via config['objective']['weights'].
-    """
-    obj = config["objective"]
-    ys = np.zeros(len(df))
-    for name, spec in obj["metrics"].items():
-        col = df[name].to_numpy(dtype=float)
-        if spec.get("direction") == "min":
-            col = -col
-        # normalize by provided scale to make metrics commensurable
-        scale = float(spec.get("scale", 1.0))
-        if scale <= 0:
-            scale = np.std(col) if np.std(col) > 0 else 1.0
-        ys += float(spec.get("weight", 1.0)) * (col / scale)
-    return ys
+
+def finite_column(df, name):
+    if name not in df:
+        raise ValueError(f'Missing CSV column: {name}')
+    col = pd.to_numeric(df[name], errors='raise').to_numpy(dtype=float)
+    if not np.isfinite(col).all():
+        raise ValueError(f'Missing/non-finite values in {name}')
+    return col
 
 
-def constraint_values(df: pd.DataFrame, config: dict) -> Optional[np.ndarray]:
-    """Return constraint feasibility: g(x)<=0 -> feasible. NaN if no constraints."""
-    cons = config.get("constraints") or []
-    if not cons:
+def objective_vector(df, config):
+    obj = config['objective']
+    if not obj['metrics'] or obj.get('aggregation', 'weighted_sum') != 'weighted_sum':
+        raise ValueError('Only nonempty weighted_sum objectives are implemented')
+    y, active = np.zeros(len(df)), False
+    for name, spec in obj['metrics'].items():
+        scale, weight = float(spec.get('scale', 1)), float(spec.get('weight', 1))
+        direction = spec.get('direction', 'max')
+        if direction not in ('min', 'max') or not np.isfinite([scale, weight]).all() or scale <= 0 or weight < 0:
+            raise ValueError('Objectives need min/max, positive scale and nonnegative weight')
+        active |= weight > 0
+        y += finite_column(df, name) / scale * weight * (-1 if direction == 'min' else 1)
+    if not active:
+        raise ValueError('At least one objective weight must be positive')
+    if not np.isfinite(y).all():
+        raise ValueError('Weighted objective overflowed; review scales')
+    return y
+
+
+def constraint_values(df, config):
+    specs = config.get('constraints', [])
+    if not specs:
         return None
-    G = np.zeros((len(df), len(cons)))
-    for j, c in enumerate(cons):
-        col = df[c["name"]].to_numpy(dtype=float)
-        # g = value - threshold (<=0 feasible)
-        thr = float(c["threshold"])
-        if c.get("direction") == "ge":  # value >= threshold  -> g = threshold - value
-            G[:, j] = thr - col
-        else:  # value <= threshold -> g = value - threshold
-            G[:, j] = col - thr
-    feasible = (G <= 0).all(axis=1)
+    feasible = np.ones(len(df), dtype=bool)
+    for spec in specs:
+        threshold, direction = float(spec['threshold']), spec.get('direction', 'le')
+        if not math.isfinite(threshold) or direction not in ('le', 'ge'):
+            raise ValueError('Constraints require finite thresholds and le/ge direction')
+        col = finite_column(df, spec['name'])
+        feasible &= col >= threshold if direction == 'ge' else col <= threshold
     return feasible
 
 
-# ----------------------------- surrogate -----------------------------
-def fit_gp(space, X, y, noise: float | None = None, random_state: int = 0) -> "Optimizer":
-    """Fit a skopt GP surrogate (Matern, ARD length-scales via MLE).
-
-    Implements the posterior of Garnett §2.2 and hyperparameter MAP of §4.3.
-    """
-    if not HAS_SKOPT:
-        raise RuntimeError(
-            "scikit-optimize not installed. Install via: "
-            "pip install scikit-optimize"
-        )
-    kwargs = dict(
-        dimensions=space,
-        base_estimator="GP",
-        acq_func="EI",
-        initial_point_generator="random",
-        n_initial_points=0,  # fit the GP immediately on the supplied history
-        random_state=random_state,
-    )
-    opt = Optimizer(**kwargs)
-    # tell history so the GP posterior conditions on all prior data (Garnett 2.2)
-    for xi, yi in zip(X, y):
-        opt.tell(xi.tolist() if hasattr(xi, "tolist") else xi, float(yi))
-    # skopt fits the surrogate lazily; force one ask() so opt.models is populated
-    if not opt.models:
-        opt.ask()
-    return opt
+@dataclass
+class GPState:
+    space: Space
+    Xi: list
+    yi: list
+    models: list
+    warnings: list
 
 
-# ----------------------------- acquisition -----------------------------
-def acquisition(opt: "Optimizer", acq: str, beta: float = 2.0,
-                xi: float = 0.01, n_samp: int = 4096, seed: int = 0):
-    """Compute acquisition over a candidate pool and return argmax.
+def fit_gp(space, X, y, noise=None, random_state=0):
+    """One fit; marginal-likelihood optimization without a hyperparameter prior."""
+    sp = Space(space)
+    points = [validate_point(list(row), space) for row in X]
+    xt = np.asarray(sp.transform(points), dtype=float)
+    kernel = ConstantKernel(1, (1e-3, 1e3)) * Matern(np.ones(xt.shape[1]), (1e-2, 1e2), nu=2.5) + WhiteKernel(1e-5, (1e-8, .1))
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-8 if noise is None else noise,
+                                   normalize_y=False, n_restarts_optimizer=1, random_state=random_state)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        gp.fit(xt, y)
+    return GPState(sp, points, list(y), [gp], sorted({str(w.message) for w in caught}))
 
-    Implements EI (Garnett 8.9), PI (7.6/8.22), UCB (8.24/8.25).
-    Candidate pool is concentrated near observed points (Garnett §9.2: the
-    posterior degenerates to the prior — and gradients vanish — far from
-    data), with a smaller LHS exploration share to avoid getting stuck.
-    """
-    if not HAS_SKOPT:
-        raise RuntimeError("scikit-optimize required for acquisition")
+
+def candidate_pool(opt, n_samp=4096, seed=0):
+    dims = opt.space.dimensions
+    sets = [list(d.categories) if isinstance(d, Categorical) else list(range(d.low, d.high+1))
+            if isinstance(d, Integer) else None for d in dims]
+    if all(s is not None for s in sets) and math.prod(map(len, sets)) <= n_samp:
+        return [list(p) for p in itertools.product(*sets)]
     rng = np.random.default_rng(seed)
-    # box bounds for Real dimensions (this skill's variables are all real)
-    box = np.array([[d.bounds[0], d.bounds[1]] for d in opt.space.dimensions],
-                   dtype=float)
-    spans = box[:, 1] - box[:, 0]
-    X_obs = np.asarray(opt.Xi, dtype=float).reshape(-1, box.shape[0]) \
-        if opt.Xi else None
-
-    n_nbr = int(0.7 * n_samp) if X_obs is not None else 0
-    n_lhs = n_samp - n_nbr
-    d = box.shape[0]  # number of variables (box is (n_dims, 2): low/high)
-    cand_parts = []
-    if n_nbr:
-        idx = rng.integers(0, len(X_obs), size=n_nbr)
-        jitter = rng.normal(0, 1, size=(n_nbr, d)) * (0.15 * spans)
-        nbr = np.clip(X_obs[idx] + jitter, box[:, 0], box[:, 1])
-        cand_parts.append(nbr)
-    if n_lhs:
-        lhs = rng.uniform(box[:, 0], box[:, 1], size=(n_lhs, d))
-        cand_parts.append(lhs)
-    cand = np.vstack(cand_parts)
-
-    # GP posterior predictive (mean, std) at candidates
-    model = opt.models[-1] if opt.models else None
-    if model is None:
-        raise RuntimeError("GP model not fit yet")
-    Xs = opt.space.transform(cand.tolist())
-    mu, std = model.predict(Xs, return_std=True)
-    tau = float(np.max(opt.yi)) if opt.yi else float(mu.max())
-
-    z = (mu - tau - xi) / np.where(std > 0, std, 1e-9)
-    if acq == "EI":
-        phi = _norm.pdf(z)
-        Phi = _norm.cdf(z)
-        a = (mu - tau - xi) * Phi + std * phi                      # (8.9)
-    elif acq == "PI":
-        a = _norm.cdf(z)                                          # (8.22)
-    elif acq == "UCB":
-        a = mu + beta * std                                        # (8.24)
-    else:
-        raise ValueError(f"unknown acquisition {acq}")
-    best = int(np.argmax(a))
-    # map candidate back to original space point
-    next_x = [cand[best, k] for k in range(cand.shape[1])]
-    return next_x, float(a[best]), float(mu[best]), float(std[best])
+    pool = opt.space.rvs(n_samples=n_samp, random_state=seed)
+    for i in range(int(.7*n_samp)):
+        obs = opt.Xi[int(rng.integers(len(opt.Xi)))]
+        for j, d in enumerate(dims):
+            if isinstance(d, Categorical):
+                if rng.random() < .7:
+                    pool[i][j] = obs[j]
+            else:
+                x = np.clip(float(obs[j]) + rng.normal()*.15*(d.high-d.low), d.low, d.high)
+                pool[i][j] = int(round(x)) if isinstance(d, Integer) else float(x)
+    unique = {}
+    for point in pool:
+        point = validate_point(point, dims)
+        unique[tuple(point)] = point
+    return list(unique.values())
 
 
-# ----------------------------- convergence -----------------------------
+def posterior(opt, points):
+    mu, std = opt.models[-1].predict(np.asarray(opt.space.transform(points), dtype=float), return_std=True)
+    if not np.isfinite(mu).all() or not np.isfinite(std).all() or (std < 0).any():
+        raise ValueError('Invalid GP posterior; no recommendation exported')
+    return mu, std
+
+
+def acquisition_values(mu, std, incumbent, acq, beta=2, xi=.01):
+    improvement = mu-incumbent-xi
+    z = improvement/np.maximum(std, 1e-15)
+    ei = np.maximum(improvement*norm.cdf(z)+std*norm.pdf(z), 0)
+    ei = np.where(std > 1e-15, ei, np.maximum(improvement, 0))
+    if acq == 'EI': return ei, ei
+    if acq == 'PI': return np.where(std > 1e-15, norm.cdf(z), (improvement > 0).astype(float)), ei
+    if acq == 'UCB': return mu+beta*std, ei
+    raise ValueError(f'Unknown acquisition: {acq}')
+
+
+def separated(space, candidates, excluded, distance):
+    keep = np.ones(len(candidates), dtype=bool)
+    c = np.asarray(space.transform(candidates), dtype=float)
+    for row in space.transform(excluded) if excluded else []:
+        keep &= np.linalg.norm(c-row, axis=1) > distance
+    return keep
+
+
+def acquisition(opt, acq, beta=2, xi=.01, n_samp=4096, seed=0):
+    """Compatibility helper for unconstrained single-point selection."""
+    points = candidate_pool(opt, n_samp, seed)
+    mask = separated(opt.space, points, opt.Xi, 1e-6)
+    if not mask.any(): raise ValueError('No untested candidates remain')
+    mu, std = posterior(opt, points)
+    score, _ = acquisition_values(mu, std, max(opt.yi), acq, beta, xi)
+    i = int(np.argmax(np.where(mask, score, -np.inf)))
+    return points[i], float(score[i]), float(mu[i]), float(std[i])
+
+
 @dataclass
 class Convergence:
     n_obs: int
-    best_y: float
+    best_y: float | None
     incumbents: list
     ei_value: float
-    improvement_last_k: float
+    improvement_last_k: float | None
     converged: bool
     reason: str
 
 
-def assess_convergence(history_y: list, ei_value: float,
-                        k: int = 3, ei_tol: float = 1e-3,
-                        rel_tol: float = 1e-3) -> Convergence:
-    incumbents = list(np.maximum.accumulate(history_y))
-    best_y = incumbents[-1] if incumbents else float("nan")
-    last = incumbents[-1 - k:] if len(incumbents) > k else incumbents
-    imp_last_k = (last[-1] - last[0]) / (abs(last[0]) + 1e-12)
-    converged = False
-    reason = "running"
-    if len(history_y) > k and abs(imp_last_k) < rel_tol:
-        converged, reason = True, f"no incumbent gain in last {k} rounds"
-    elif abs(ei_value) < ei_tol:
-        converged, reason = True, f"EI below tol ({ei_value:.2e})"
-    return Convergence(len(history_y), best_y, incumbents, ei_value,
-                       imp_last_k, converged, reason)
+def assess_convergence(history_y, ei_value, k=3, ei_tol=1e-3, rel_tol=1e-3):
+    incumbent = np.maximum.accumulate(history_y).tolist()
+    gain = None if len(incumbent) <= k else (incumbent[-1]-incumbent[-1-k])/max(abs(incumbent[-1-k]), 1e-12)
+    done = gain is not None and gain < rel_tol and ei_value < ei_tol
+    return Convergence(len(history_y), incumbent[-1] if incumbent else None, incumbent,
+                       float(ei_value), gain, bool(done), 'Small gain AND low modeled EI (heuristic)' if done else 'Continue collecting evidence')
 
 
-# ----------------------------- main loop -----------------------------
-def run(data_csv: str, config_path: str, acq: str = "EI",
-        beta: float = 2.0, xi: float = 0.01, batch: int = 1,
-        out_json: str = "next_experiment.json",
-        trace_path: str = "trace.json", emit_trace: bool = True,
-        seed: int = 0):
+def run(data_csv, config_path, acq='EI', beta=2, xi=.01, batch=1,
+        out_json='next_experiment.json', trace_path='trace.json', emit_trace=True, seed=0):
+    if not isinstance(batch, int) or isinstance(batch, bool) or batch < 1:
+        raise ValueError('Batch must be a positive integer')
+    if not np.isfinite([beta, xi]).all() or min(beta, xi) < 0:
+        raise ValueError('beta and xi must be finite and nonnegative')
     tr = TraceRecorder()
-    with tr.span("run", input_summary=f"data={data_csv}, config={config_path}, acq={acq}, batch={batch}"):
-        # ---- config ----
-        with tr.span("load_config", input_summary=config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-            tr.record_output(f"{len(config.get('variables', []))} vars; "
-                              f"obj={list(config.get('objective', {}).get('metrics', {}).keys())}")
-
-        # ---- data ----
-        with tr.span("load_data", input_summary=data_csv):
-            df = load_data(data_csv)
-            tr.record_output(f"{len(df)} rows x {df.shape[1]} cols")
-
-        with tr.span("build_space"):
-            space = build_space(config)
-            tr.record_output(f"{len(space)} dims")
-
-        X = df[[v["name"] for v in config["variables"]]].to_numpy()
+    with tr.span('run', input_summary=f'data={data_csv}, config={config_path}, batch={batch}'):
+        with open(config_path, encoding='utf-8') as f: config = yaml.safe_load(f)
+        dims, df = build_space(config), load_data(data_csv)
+        original_count = len(df)
+        history_points = [validate_point(row, dims) for row in df[[d.name for d in dims]].values.tolist()]
+        if 'qc_status' in df:
+            accepted = config.get('accepted_qc', ['Good'])
+            if not accepted or not set(accepted) <= {'Good', 'Check recommended'}:
+                raise ValueError('accepted_qc may include Good and/or Check recommended, never Invalid')
+            df = df[df.qc_status.isin(accepted)].reset_index(drop=True)
+        if len(df) < 3: raise ValueError('At least three complete accepted observations are required')
+        X = [validate_point(row, dims) for row in df[[d.name for d in dims]].values.tolist()]
+        if len({tuple(row) for row in X}) < 2: raise ValueError('At least two distinct designs are required')
         y = objective_vector(df, config)
-
-        # ---- feasibility (Garnett §11.2) ----
-        with tr.span("feasibility_filter", input_summary="constraints -> feasible mask"):
-            feasible = constraint_values(df, config)
-            if feasible is not None:
-                # fit the surrogate on feasible observations only; infeasible
-                # rows are recorded but excluded from the objective GP.
-                mask = feasible
-                if mask.sum() < max(3, 2 * X.shape[1]):
-                    mask = np.ones(len(df), dtype=bool)  # too few feasible -> use all
-                X = X[mask]
-                y = y[mask]
-            n_feas = int(feasible.sum()) if feasible is not None else len(df)
-            tr.record_output(f"feasible={n_feas}/{len(df)}")
-
-        # ---- standardize (numerical stability) ----
-        with tr.span("standardize_objective"):
-            y_mean = float(np.mean(y))
-            y_std = float(np.std(y)) or 1.0
-            y_norm = (y - y_mean) / y_std
-            tr.record_output(f"y_mean={y_mean:.4g}, y_std={y_std:.4g}")
-
-        # ---- surrogate ----
-        with tr.span("fit_gp", input_summary="Matern5/2 + ARD, marginal-likelihood MAP"):
-            opt = fit_gp(space, X, y_norm, random_state=seed)
-            tr.record_output(f"models={len(opt.models)}")
-
-        # ---- acquisition ----
-        with tr.span("acquisition", input_summary=f"acq={acq}, beta={beta}, xi={xi}"):
-            nxt, a_val, mu_n, std_n = acquisition(opt, acq, beta=beta, xi=xi, seed=seed)
-            tr.record_output(f"a_val={a_val:.4g}")
-
-        mu = mu_n * y_std + y_mean          # back to original objective scale
-        std = std_n * y_std
-
-        # ---- robustness guard (Garnett §10.7) ----
-        with tr.span("robustness_guard", input_summary="instability cap"):
-            std_cap = 10.0 * max(y_std, 1e-6)
-            gp_unstable = not np.isfinite(std) or std > std_cap
-            if gp_unstable:
-                std_rep = std_cap
-                mu_rep = float(np.clip(mu, y.min() - 2 * y_std, y.max() + 2 * y_std))
-            else:
-                std_rep, mu_rep = float(std), float(mu)
-            ci95 = [mu_rep - 1.96 * std_rep, mu_rep + 1.96 * std_rep]
-            tr.record_output("unstable" if gp_unstable else "stable")
-
-        # ---- convergence ----
-        with tr.span("convergence"):
-            conv = assess_convergence(y.tolist(), a_val)
-            tr.record_output(f"converged={conv.converged}; {conv.reason}")
-
-        rec = {
-            "next_experiment": {v["name"]: float(x) for v, x in zip(config["variables"], nxt)},
-            "acquisition_value": a_val,
-            "predicted_mean": mu_rep,
-            "predicted_std": std_rep,
-            "confidence_95": ci95,
-            "gp_stability": ("unstable: n<2d, hyperparameters diverged "
-                             "(Garnett 10.7) — collect more data or constrain "
-                             "hyperparameters") if gp_unstable else "stable",
-            "convergence": asdict(conv),
-            "n_observations": len(df),
-            "best_observed": float(y.max()),
-            "acquisition_used": acq,
-            "kernel": "Matern 5/2 (ARD)",
-            "seed": seed,
-            "notes": "Run the recommended experiment, append its measured metric to the CSV, "
-                     "and re-run this script to close the loop.",
-        }
-        if batch > 1:
-            # greedy batch: q-1 more points via Thompson-ish sampling on the GP
-            rec["batch"] = []
-            for _ in range(batch - 1):
-                nxt2, a2, m2, s2 = acquisition(opt, acq, beta=beta, xi=xi, n_samp=4000, seed=seed + 1)
-                rec["batch"].append({v["name"]: float(x)
-                                     for v, x in zip(config["variables"], nxt2)})
-
-        # embed trace in the recommendation for one-file auditing
-        rec["trace"] = tr.to_dict()
-
-        with tr.span("persist", input_summary=out_json):
-            with open(out_json, "w", encoding="utf-8") as f:
-                json.dump(rec, f, indent=2, ensure_ascii=False, default=str)
-            tr.record_output(f"wrote {out_json}")
-
+        feasible = constraint_values(df, config)
+        if feasible is None: feasible = np.ones(len(df), dtype=bool)
+        pending = [validate_point([p[d.name] for d in dims], dims) for p in config.get('pending_experiments', [])]
+        center, scale = float(y.mean()), float(y.std()) or 1
+        with tr.span('fit_objective_gp', input_summary='Matern5/2; marginal likelihood; all accepted observations'):
+            opt = fit_gp(dims, X, (y-center)/scale, random_state=seed)
+        settings = config.get('recommendation', {})
+        n = settings.get('n_candidates', 4096)
+        prob_min = float(settings.get('min_feasibility_probability', .8))
+        history_distance = float(settings.get('history_distance', 1e-6))
+        batch_distance = float(settings.get('batch_distance', .02))
+        if not isinstance(n, int) or n < max(16, batch) or not 0 < prob_min <= 1 or not np.isfinite([history_distance, batch_distance]).all() or min(history_distance, batch_distance) < 0:
+            raise ValueError('Invalid candidate count, feasibility probability or separation distance')
+        points = candidate_pool(opt, n, seed)
+        mu, std = posterior(opt, points)
+        allowed = separated(opt.space, points, history_points+pending, history_distance)
+        probability, forecasts = np.ones(len(points)), []
+        model_warnings = list(opt.warnings)
+        with tr.span('candidate_constraints'):
+            for i, spec in enumerate(config.get('constraints', [])):
+                name, threshold, direction = spec['name'], float(spec['threshold']), spec.get('direction', 'le')
+                if name in [d.name for d in dims]:
+                    j = [d.name for d in dims].index(name)
+                    if isinstance(dims[j], Categorical): raise ValueError('Numeric constraints cannot target categories')
+                    cmu, cstd = np.array([p[j] for p in points]), np.zeros(len(points))
+                    p = (cmu >= threshold if direction == 'ge' else cmu <= threshold).astype(float)
+                    allowed &= p.astype(bool)
+                    source = 'exact input constraint'
+                else:
+                    values = finite_column(df, name)
+                    ccenter, cscale = float(values.mean()), float(values.std()) or 1
+                    gp = fit_gp(dims, X, (values-ccenter)/cscale, random_state=seed+i+1)
+                    cmu, cstd = posterior(gp, points)
+                    cmu, cstd = cmu*cscale+ccenter, cstd*cscale
+                    signed = cmu-threshold if direction == 'ge' else threshold-cmu
+                    p = np.where(cstd > 1e-15, norm.cdf(signed/np.maximum(cstd, 1e-15)), (signed >= 0).astype(float))
+                    source = 'GP forecast; experimentally verify'
+                    model_warnings.extend(gp.warnings)
+                probability *= p
+                forecasts.append((spec, cmu, cstd, p, source))
+        allowed &= probability >= prob_min
+        if not allowed.any():
+            raise ValueError('No untested candidates meet the feasibility probability. Add constraint data or explicitly review the threshold; no recommendation written.')
+        mode = 'objective_optimization' if feasible.any() else 'feasibility_search'
+        incumbent = float(np.max((y[feasible]-center)/scale)) if feasible.any() else float(max(opt.yi))
+        score, ei = acquisition_values(mu, std, incumbent, acq, beta, xi)
+        score = probability if mode == 'feasibility_search' else (score*probability if acq in ('EI', 'PI') else score)
+        records, mask = [], allowed.copy()
+        with tr.span('select_unique_batch', input_summary='Fixed posterior; greedy minimum-distance separation'):
+            for _ in range(batch):
+                if not mask.any(): raise ValueError('Not enough distinct eligible candidates; reduce batch/separation. No partial batch written.')
+                i = int(np.argmax(np.where(mask, score, -np.inf)))
+                mean, sigma = float(mu[i]*scale+center), float(std[i]*scale)
+                records.append(dict(parameters=dict(zip([d.name for d in dims], points[i])),
+                    predicted_mean=mean, predicted_std=sigma, confidence_95=[mean-1.96*sigma, mean+1.96*sigma],
+                    acquisition_value=float(score[i]), feasibility_probability=float(probability[i]),
+                    constraints=[dict(name=s['name'], threshold=float(s['threshold']), direction=s.get('direction', 'le'),
+                        predicted_mean=float(m[i]), predicted_std=float(sd[i]), probability=float(p[i]), source=src)
+                        for s, m, sd, p, src in forecasts]))
+                mask &= separated(opt.space, points, [points[i]], batch_distance)
+        cc = config.get('convergence', {})
+        k, rel_tol, ei_tol = int(cc.get('k_rounds_no_gain', 3)), float(cc.get('relative_tol', 1e-3)), float(cc.get('ei_tol', 1e-3))
+        if k < 1 or not np.isfinite([rel_tol, ei_tol]).all() or min(rel_tol, ei_tol) < 0: raise ValueError('Invalid convergence settings')
+        conv = assess_convergence(y[feasible].tolist(), float(np.max((ei*probability)[allowed])), k, ei_tol, rel_tol)
+        sparse = len(df) < 2*len(dims)+1
+        if sparse or model_warnings or mode == 'feasibility_search':
+            conv.converged, conv.reason = False, 'Continue: sparse data, model warnings, or no measured feasible design'
+        first = records[0]
+        rec = dict(schema_version='1.1.0', next_experiment=first['parameters'],
+                   **{key: first[key] for key in ('acquisition_value', 'predicted_mean', 'predicted_std', 'confidence_95', 'feasibility_probability', 'constraints')},
+                   recommendations=records, convergence=asdict(conv), n_observations=len(df),
+                   excluded_qc_rows=original_count-len(df), n_feasible_observations=int(feasible.sum()),
+                   best_observed=float(y[feasible].max()) if feasible.any() else None,
+                   acquisition_used=acq, mode=mode, seed=seed,
+                   kernel='Matern 5/2 on normalized numeric / one-hot categorical inputs',
+                   gp_stability='review' if sparse or model_warnings else 'no fitting warnings',
+                   model_warnings=sorted(set(model_warnings)), objective_definition=config['objective'],
+                   objective_units='weighted, direction-adjusted, scaled utility',
+                   batch_method='fixed-posterior greedy separation (not q-EI)', minimum_feasibility_probability=prob_min,
+                   notes='Outcome feasibility is a forecast, not a guarantee. The 95% band is conditional GP uncertainty, never clipped. Verify proposed experiments.')
+        if batch > 1: rec['batch'] = [r['parameters'] for r in records[1:]]
+    rec['trace'] = tr.to_dict()
     if emit_trace:
+        rec['trace_file'] = trace_path
         tr.save(trace_path)
-        rec["trace_file"] = trace_path
+    with open(out_json, 'w', encoding='utf-8') as f: json.dump(rec, f, indent=2, ensure_ascii=False, allow_nan=False)
     return rec
 
 
-if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="BO electrocatalyst pipeline (MIT)")
-    p.add_argument("--data", default="assets/experiment_template.csv")
-    p.add_argument("--config", default="assets/config.yaml")
-    p.add_argument("--acq", default="EI", choices=["EI", "PI", "UCB"])
-    p.add_argument("--beta", type=float, default=2.0, help="UCB exploration param")
-    p.add_argument("--xi", type=float, default=0.01, help="EI/PI improvement margin")
-    p.add_argument("--batch", type=int, default=1, help="batch size q (Garnett 11.3)")
-    p.add_argument("--seed", type=int, default=0, help="RNG seed (reproducibility)")
-    p.add_argument("--out", default="next_experiment.json")
-    p.add_argument("--trace", default="trace.json", help="TRACE json output path")
-    p.add_argument("--no-trace", dest="emit_trace", action="store_false",
-                   help="disable TRACE json emission")
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description='Typed, constrained GP experiment planning')
+    p.add_argument('--data', default='assets/experiment_template.csv')
+    p.add_argument('--config', default='assets/config.yaml')
+    p.add_argument('--acq', default='EI', choices=['EI', 'PI', 'UCB'])
+    p.add_argument('--beta', type=float, default=2)
+    p.add_argument('--xi', type=float, default=.01)
+    p.add_argument('--batch', type=int, default=1)
+    p.add_argument('--seed', type=int, default=0)
+    p.add_argument('--out', default='next_experiment.json')
+    p.add_argument('--trace', default='trace.json')
+    p.add_argument('--no-trace', dest='emit_trace', action='store_false')
     a = p.parse_args()
-    rec = run(a.data, a.config, a.acq, a.beta, a.xi, a.batch, a.out,
-              trace_path=a.trace, emit_trace=a.emit_trace, seed=a.seed)
-    print(json.dumps(rec, indent=2, ensure_ascii=False, default=str))
+    try: result = run(a.data, a.config, a.acq, a.beta, a.xi, a.batch, a.out, a.trace, a.emit_trace, a.seed)
+    except (ValueError, KeyError) as error: p.error(str(error))
+    print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))

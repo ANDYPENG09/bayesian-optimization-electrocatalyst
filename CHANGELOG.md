@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0] — 2026-10-02
+
+- Fix repeated batch recommendations; preserve integer/category types and exclude historical/pending designs.
+- Filter input inequalities exactly and forecast measured outcome feasibility with independent GPs; never silently revert to unconstrained selection.
+- Validate objective scales, complete finite accepted data, QC, bounds and configuration.
+- Fit each GP once with explicit Matérn kernel; report marginal-likelihood fitting honestly, without a MAP/EHVI/q-EI claim.
+- Remove posterior clipping; report real model uncertainty and fitting warnings.
+- Require both incumbent stagnation and modeled EI for stopping; disable convergence on sparse/warning cases.
+- Finalize embedded and standalone traces consistently; add schema 1.1.0 per-recommendation reports.
+- Add strict analyzer CSV handoff, reproducible synthetic closed-loop example, tests and CI.
+
+
 All notable changes to this project are documented in this file.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow [SemVer](https://semver.org/).
 

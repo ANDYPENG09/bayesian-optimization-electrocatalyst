@@ -6,7 +6,6 @@ bayesian-optimization-electrocatalyst
 ## 作者
 - 作者（Author）：Yu Peng
 - 维护者（Maintainer）：Yu Peng
-- 联系方式（可选）：your.email@example.com
 - ORCID（可选）：
 - GitHub：https://github.com/ANDYPENG09
 
@@ -21,8 +20,8 @@ MIT License —— 详见仓库根目录 LICENSE 文件。
 ## 描述
 面向电催化剂开发的贝叶斯优化（BO）闭环技能。以高斯过程（Matérn 5/2 + ARD）
 为代理模型，支持 EI / PI / UCB 采集函数，以及约束（§11.2）、批量（§11.3）、
-多目标（§11.7）扩展。基于已有实验数据推荐下一轮实验方案，并输出预测均值、
-95% 置信区间与收敛分析。理论依据 Roman Garnett《Bayesian Optimization》
+加权目标组合（不实现 EHVI/Pareto 前沿）。基于已有实验数据推荐下一轮实验方案，并输出预测均值、
+条件 GP 95% 区间与启发式停止诊断。理论依据 Roman Garnett《Bayesian Optimization》
 （Cambridge University Press）。
 
 ## 触发条件

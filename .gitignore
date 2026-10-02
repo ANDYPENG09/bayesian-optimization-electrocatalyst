@@ -19,3 +19,5 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+demo_output/

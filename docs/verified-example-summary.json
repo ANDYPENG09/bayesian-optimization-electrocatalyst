@@ -1,0 +1,34 @@
+{
+  "data_origin": "Synthetic mathematical demonstration; not real catalyst measurements",
+  "objective": "1 - (x - 0.72)^2",
+  "constraint": "1 + x <= 1.85",
+  "known_optimum_x": 0.72,
+  "initial_best_feasible_reward": 0.9516,
+  "final_best_feasible_reward": 0.9999996709173913,
+  "rounds": [
+    {
+      "round": 1,
+      "x": 0.7194263427776866,
+      "predicted_reward": 1.0016926542036027,
+      "observed_synthetic_reward": 0.9999996709173913,
+      "observed_synthetic_cost": 1.7194263427776866,
+      "forecast_feasibility_probability": 1.0
+    },
+    {
+      "round": 2,
+      "x": 0.6808475066848559,
+      "predicted_reward": 0.9984297404674318,
+      "observed_synthetic_reward": 0.9984670822672076,
+      "observed_synthetic_cost": 1.6808475066848558,
+      "forecast_feasibility_probability": 1.0
+    },
+    {
+      "round": 3,
+      "x": 0.7620320645652422,
+      "predicted_reward": 0.998263787416257,
+      "observed_synthetic_reward": 0.9982333055483833,
+      "observed_synthetic_cost": 1.762032064565242,
+      "forecast_feasibility_probability": 1.0
+    }
+  ]
+}

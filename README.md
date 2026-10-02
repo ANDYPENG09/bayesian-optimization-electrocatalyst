@@ -1,79 +1,75 @@
-# bayesian-optimization-electrocatalyst
+# Bayesian Optimization for Electrocatalyst R&D
 
-Closed-loop **Bayesian Optimization** for electrocatalyst R&D — a skill (agent capability) that recommends the next experiment from a Gaussian-process surrogate of the catalyst structure–activity landscape.
+Recommend the next experiment from a **Gaussian-process surrogate**, with explicit uncertainty, candidate constraint forecasts and a reproducible record. **v1.1.0**.
 
-> Theory base: Roman Garnett, *Bayesian Optimization* (Cambridge University Press, 2023).
-
-## What it does
-
-Given a table of prior experiments (composition, reaction conditions, measured metrics), the skill:
-
-1. **Fits a GP surrogate** — Matérn 5/2 + ARD kernel, marginal-likelihood MAP hyperparameters (skopt).
-2. **Selects the next experiment** via an acquisition function: **EI** (default), **PI**, or **UCB**.
-3. **Handles real-world constraints** — stability/cost/particle-size inequality constraints (Garnett §11.2), batch recommendations for parallel stations (§11.3), multi-objective scalarization (§11.7).
-4. **Reports uncertainty** — predicted mean, 95% credible band, convergence verdict (incumbent trajectory + EI magnitude).
-
-Each run emits `next_experiment.json` (recommendation) and `trace.json` (auditable call chain, TRACE contract).
+[Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
 
 ## Quick start
 
 ```bash
-python -m venv .venv && .venv/Scripts/activate   # or: .venv/bin/activate (macOS/Linux)
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-
-# one BO round on the bundled template data
-python scripts/bo_pipeline.py \
-    --data assets/experiment_template.csv \
-    --config assets/config.yaml \
-    --acq EI --batch 1 --out next_experiment.json
+python scripts/bo_pipeline.py --data assets/experiment_template.csv --config assets/config.yaml --batch 3 --seed 0 --out next_experiment.json
 ```
 
-Append the measured result of the recommended experiment to the CSV and re-run to close the loop.
+Execute a chosen experiment, append its measured results to the input CSV, then rerun. The bundled datasets are **synthetic**, not proprietary experimental data. Sparse/high-dimensional datasets produce a review flag; predictions are not independently validated by those examples.
 
-## CLI reference
+## Implemented behavior
 
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--data` | `assets/experiment_template.csv` | historical experiments CSV |
-| `--config` | `assets/config.yaml` | campaign config (variables/objective/constraints/acquisition) |
-| `--acq` | `EI` | `EI` \| `PI` \| `UCB` |
-| `--beta` | `2.0` | UCB exploration parameter |
-| `--xi` | `0.01` | EI/PI improvement margin |
-| `--batch` | `1` | parallel batch size q (§11.3) |
-| `--seed` | `0` | RNG seed (reproducibility) |
-| `--out` | `next_experiment.json` | output recommendation path |
-| `--trace` | `trace.json` | TRACE json output path |
-| `--no-trace` | — | disable TRACE emission |
+| Capability | Method and limitation |
+|---|---|
+| Objective model | Matérn 5/2 with per-feature length scales; marginal-likelihood hyperparameter optimization, not MAP with a hyperparameter prior |
+| Inputs | Real / integer / categorical; normalized numeric and one-hot categorical features; integers/categories survive JSON export |
+| Acquisition | EI, PI, UCB in maximization direction; candidate-pool optimization, not a global optimum guarantee |
+| Objectives | Direction-adjusted weighted sum with explicit positive scales; no Pareto-front search or EHVI |
+| Known input constraints | Exact candidate filtering when the constrained field is a decision variable |
+| Measured outcome constraints | One GP per outcome; product of marginal feasibility probabilities under an independence approximation |
+| Batch | Fixed-posterior greedy separation; no repeated candidate or historical/pending design; not joint q-EI |
+| Uncertainty | Unclipped conditional GP mean/std and 95% band on weighted utility; fitting warnings are exported |
+| Stopping | Small recent gain AND low modeled EI, with sparse-data/model-warning checks; a heuristic, not proof of global convergence |
+| QC | If `qc_status` exists, only `Good` is accepted by default; `Invalid` can never be enabled |
 
-## Repository layout
+A recommendation that satisfies an **outcome probability threshold** is still a forecast. It does not guarantee particle size, durability or other measured outcomes. If no untested candidate meets the threshold, the planner writes no new recommendation and explains what needs review. With no measured feasible design, it labels the run `feasibility_search` and ranks eligible candidates by forecast feasibility.
 
-```
-├── SKILL.md                     skill definition (closed-loop workflow + TRACE spec)
-├── LICENSE                      MIT
-├── skill-info.md                author / license / metadata (human-readable)
-├── _meta.json                   platform metadata (SkillHub / ClawHub import)
-├── CHANGELOG.md
-├── requirements.txt
-├── references/
-│   ├── bo_theory.md             theory manual with Garnett formula numbers
-│   └── electrocatalyst_metrics.md  metrics & constraint encoding
-├── scripts/
-│   ├── bo_pipeline.py           main closed loop (GP → EI/PI/UCB → recommend → converge)
-│   ├── trace_utils.py           TRACE call-chain recorder
-│   └── data_io.py               CSV / WorkBuddy / Notion / ima multi-source merge
-└── assets/
-    ├── config.yaml                   generic campaign config
-    ├── experiment_template.csv       9-point synthetic seed data
-    ├── config_ptco_example.yaml      literature-based PtCo L1₀ example config (7-D)
-    └── experiment_ptco_example.csv   9 synthetic PtCo seed runs (literature-range)
+## Configure recommendation rules
+
+```yaml
+recommendation:
+  n_candidates: 4096
+  min_feasibility_probability: 0.8
+  history_distance: 0.000001
+  batch_distance: 0.02
+pending_experiments:
+  # - {T_C: 700, t_h: 2, pH: 1, E_V: 1.5, m_cat: 0.2, x_M1: 0.5}
 ```
 
-## Use cases
+Distances use Euclidean distance in normalized/encoded input space. This is a numerical separation rule; choose variables/discrete levels matching experimental resolution. Historical designs are excluded even when their QC rejects them from model fitting. Add already scheduled experiments to `pending_experiments`; unchanged baselines need not be scheduled again.
 
-- **PtCo L1₀ ordering**: objective = ordering degree S (from standard XRD analysis), variables = heat-treat T / hold / ramp-cool rate / Pt loading; see `assets/config_ptco_example.yaml`.
-- **IrOₓ OER**: multi-objective mass-activity / −η@10mA, constraints stability & cost; seed with a 2⁵⁻¹ fractional-factorial DoE before BO.
-- **Descriptor screening**: ARD length scales auto-rank weak descriptors.
+Objective values are finite complete data. Missing objective/constraint values on accepted rows produce an error, not an inferred zero. Constraints use `le` or `ge`; their thresholds retain the corresponding CSV units. The displayed predicted utility combines the configured scales/weights, not a raw MA/ECSA value.
 
-## License
+## Outputs and compatibility
 
-MIT — see [LICENSE](LICENSE). No credentials, internal endpoints, or personal data are bundled; `assets/` contain only synthetic seed data.
+`next_experiment.json` keeps `next_experiment`, prediction fields, `convergence` and `trace`. The legacy `batch` array remains the q−1 additional points. New `recommendations` contains all q points with individual predictions/constraint reports; `schema_version` is `1.1.0`. `trace.json` and the embedded trace include completed spans.
+
+```bash
+python scripts/bo_pipeline.py --acq UCB --beta 2 --batch 3 --seed 7
+python scripts/run_synthetic_closed_loop.py --output demo_output
+python -m unittest discover -s tests -v
+```
+
+### Import electrochemistry results
+
+```bash
+python scripts/import_analyzer_results.py --design design.csv --results results.csv --out joined.csv
+python scripts/bo_pipeline.py --data joined.csv --config campaign.yaml
+```
+
+The importer joins [PEMFC analyzer](https://github.com/ANDYPENG09/PEMFC-Electrocatalyst-Activity-Analyzer) exports to your synthesis-design CSV by unique `sample_id`. It requires the same ID set and rejects ambiguous columns. Preserve the analyzer's metric units and QC. XRD empirical indices must remain distinct from calibrated long-range `S` values.
+
+## Validation
+
+Tests cover reproducible unique batches, input/outcome constraints, integer/category serialization, pending exclusions, QC, invalid data, exhausted spaces, acquisition limits, traces and stopping logic. A synthetic closed-loop example and the bundled PtCo example are exercised in CI. No real catalyst improvement or model calibration is claimed by these tests.
+
+Theory: Roman Garnett, *Bayesian Optimization* (Cambridge University Press, 2023). [scikit-learn GP documentation](https://scikit-learn.org/stable/modules/gaussian_process.html). [MIT License](LICENSE).
