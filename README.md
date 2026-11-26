@@ -1,6 +1,18 @@
 # AI4M/S for Electrocatalyst R&D
 
-Validate models on electrocatalyst synthesis data and plan experiments with **Bayesian optimization**. The planner uses a Gaussian-process surrogate with uncertainty estimates, constraint forecasts and a reproducible record. Planner **v1.1.0**.
+**Materials Research Copilot | Scientific AI · Materials Informatics · Experiment Optimization**
+
+![Cloud demo](https://img.shields.io/badge/Cloud%20demo-deployed-brightgreen) ![LLM API](https://img.shields.io/badge/LLM%20API-validated-brightgreen) ![Bayesian optimization](https://img.shields.io/badge/BO-v1.1.0-blue)
+
+A deployed cloud-based scientific AI environment and modular materials R&D toolkit, connecting literature knowledge infrastructure, experimental data, characterization and uncertainty-aware Bayesian optimization. The Gaussian-process planner provides reproducible candidate screening, constraint forecasts and uncertainty estimates.
+
+### Platform highlights
+
+- **Cloud deployment completed:** Docker Compose, AnythingLLM, authenticated HTTPS access and an isolated Cloudflare Tunnel on a lightweight 2-vCPU / 4-GB instance.
+- **Scientific AI inference validated:** DeepSeek-V3.2 through an external API; BGE-M3 and LanceDB configured for literature retrieval.
+- **Scientific computing toolkit:** electrochemical activity analysis, XRD characterization, TEM/HRTEM prototype and Bayesian experiment planning.
+- **Materials R&D case study:** retrospective IrOx OER model validation and reproducible synthetic closed-loop optimization.
+- **Literature connectivity:** Zotero and Tencent ima adapters, with live ima authentication and keyword retrieval verified.
 
 [IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
 
@@ -49,7 +61,9 @@ flowchart TD
 
 ## Deployment status
 
-A lightweight AnythingLLM demo is deployed on a 2-vCPU / 4-GB cloud instance with external DeepSeek-V3.2, configured BGE-M3 embeddings, LanceDB and an independent HTTPS tunnel. Chat and HTTPS access are verified; PDF ingestion, embedding/retrieval and scientific tool orchestration remain pending. See the [deployment checkpoint and resume checklist](docs/ai4ms-deployment.md). The NAS production environment remains separate and planned.
+**Cloud Demo — deployment complete.** The platform runs AnythingLLM with external DeepSeek-V3.2 inference, BGE-M3 embedding configuration and LanceDB storage, protected by application authentication and HTTPS through an independent Cloudflare Tunnel. Idle container memory measured approximately 362 MiB.
+
+See the [technical deployment notes](docs/ai4ms-deployment.md) for verification scope, integration milestones and the separate NAS production architecture.
 
 ## Start with model validation
 
