@@ -9,7 +9,7 @@ from pathlib import Path
 import rag
 
 BASE = "https://ima.qq.com/openapi/wiki/v1/"
-ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge"}
+ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge", "get_addable_knowledge_base_list"}
 
 class ImaError(RuntimeError):
     pass
@@ -95,9 +95,26 @@ class ImaClient:
                 raise ImaError("Unexpected repeated or invalid pagination cursor.")
             seen.add(cursor)
     def libraries(self, query="", max_pages=3):
-        return [{"id":x["id"],"name":clean(x.get("name"))} for x in self.pages(
-            "search_knowledge_base",{"query":query,"limit":20},"info_list",max_pages)
-            if isinstance(x,dict) and isinstance(x.get("id"),str)]
+        def normalize(items):
+            found = {}
+            for x in items:
+                if not isinstance(x,dict):
+                    continue
+                key = x.get("id") or x.get("knowledge_base_id") or x.get("kb_id")
+                basic = x.get("basic_info")
+                basic = basic if isinstance(basic,dict) else {}
+                name = clean(x.get("name") or basic.get("name") or x.get("title") or x.get("knowledge_base_name") or "")
+                if isinstance(key,str) and key:
+                    found[key] = {"id":key,"name":name or "(unnamed)"}
+            return list(found.values())
+        if query:
+            return normalize(self.pages("search_knowledge_base",{"query":query,"limit":20},"info_list",max_pages))
+        found = normalize(self.pages("search_knowledge_base",{"query":"","limit":20},"info_list",max_pages))
+        if found:
+            return found
+        # Empty search can omit personal writable libraries. Read-only discovery
+        # via the same endpoint used in Zotero IMA Sync; no write action performed.
+        return normalize(self.pages("get_addable_knowledge_base_list",{"limit":50},"addable_knowledge_base_list",max_pages))
     def browse(self, kb, folder=None, max_pages=3):
         payload={"knowledge_base_id":kb,"limit":50}
         if folder:
@@ -139,18 +156,18 @@ def packet(query, evidence, backend, bo_report=None):
         output["bo_warning"]="Independent existing model output, not a literature-derived prediction or experimental validation."
     return output
 
-def doctor(query):
+def doctor(query, library_query="", kb=None):
     """Interactive read-only smoke check; never prints credentials or excerpts."""
     client_id = os.getenv("IMA_CLIENT_ID") or os.getenv("IMA_OPENAPI_CLIENTID") or input("ima Client ID: ").strip()
     api_key = os.getenv("IMA_API_KEY") or os.getenv("IMA_OPENAPI_APIKEY") or getpass.getpass("ima API Key: ").strip()
     client = ImaClient(client_id,api_key)
-    libraries = client.libraries()
+    libraries = [{"id":kb,"name":"Explicit API knowledge base"}] if kb else client.libraries(library_query)
     if not libraries:
-        return {"authentication":"request accepted","libraries_found":0,"warning":"No accessible libraries found in first three pages."}
-    print("Accessible libraries (first three pages):")
+        return {"authentication":"request accepted","libraries_found":0,"warning":"No libraries found using discovery; try --library-query with the exact library name or --kb with its encoded OpenAPI ID."}
+    print("Discovered libraries (read access not yet verified):")
     for idx, lib in enumerate(libraries,1):
         print(f"{idx}. {lib['name']}")
-    selected = input("Select library number: ").strip()
+    selected = "1" if kb else input("Select library number: ").strip()
     if not selected.isdigit() or not 1 <= int(selected) <= len(libraries):
         raise ImaError("Invalid library selection.")
     library = libraries[int(selected)-1]
@@ -166,7 +183,7 @@ def doctor(query):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest="command",required=True)
-    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx")
+    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx"); a.add_argument("--library-query",default=""); a.add_argument("--kb")
     a=sub.add_parser("libraries"); a.add_argument("--query",default="")
     a=sub.add_parser("browse"); a.add_argument("--kb",required=True); a.add_argument("--folder")
     a=sub.add_parser("ask")
@@ -181,7 +198,7 @@ def main():
     args=parser.parse_args()
     try:
         if args.command=="doctor":
-            result=doctor(args.query)
+            result=doctor(args.query,args.library_query,args.kb)
         elif args.command=="libraries":
             result={"libraries":ImaClient().libraries(args.query),"max_pages":3}
         elif args.command=="browse":
