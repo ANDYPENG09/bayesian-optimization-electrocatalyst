@@ -37,7 +37,7 @@ flowchart TD
 | Layer | Repository / capability | Status |
 | --- | --- | --- |
 | Literature ingestion | [Zotero Scholar Bridge](https://github.com/ANDYPENG09/zotero-scholar-bridge), [Zotero ima sync](https://github.com/ANDYPENG09/zotero-ima-sync) | Existing tools |
-| Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | Prototype in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2); live authentication and retrieval not yet verified |
+| Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | Prototype in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2); API authentication, library enumeration and keyword retrieval verified by operator; PDF download and parsing pending |
 | Scientific analysis | [Electrochemistry analyzer](https://github.com/ANDYPENG09/PEMFC-Electrocatalyst-Activity-Analyzer), [XRD toolkit](https://github.com/ANDYPENG09/xrd-toolkit) | Existing tools; automated XRD integration planned |
 | TEM / HRTEM | [TNLA v0.1](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/tem) · lattice spacing, particle sizing, geometric dispersion | Local prototype; real TIFF and UI validation pending |
 | BET / porosimetry | [Quantachrome adsorption analysis](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/bet) · planned, no calculation yet | Placeholder |
@@ -46,6 +46,10 @@ flowchart TD
 | Research Copilot | Combine literature evidence with independent model reports | Prototype; autonomous orchestration and prospective experimental validation planned |
 
 **Research principle:** evidence-grounded hypotheses and model predictions are distinct. Experimental decisions remain subject to scientist review. This diagram describes the integration architecture, not a claim of a fully deployed autonomous laboratory. No private literature, credentials or proprietary raw experimental data are included.
+
+## Deployment status
+
+A lightweight AnythingLLM demo is deployed on a 2-vCPU / 4-GB cloud instance with external DeepSeek-V3.2, configured BGE-M3 embeddings, LanceDB and an independent HTTPS tunnel. Chat and HTTPS access are verified; PDF ingestion, embedding/retrieval and scientific tool orchestration remain pending. See the [deployment checkpoint and resume checklist](docs/ai4ms-deployment.md). The NAS production environment remains separate and planned.
 
 ## Start with model validation
 
