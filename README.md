@@ -4,6 +4,45 @@ Validate models on electrocatalyst synthesis data and plan experiments with **Ba
 
 [IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
 
+## Materials Research Copilot — AI4M/S workflow
+
+A modular research architecture connecting scientific literature, structured experimental evidence, characterization software and uncertainty-aware experiment planning.
+
+```mermaid
+flowchart TD
+    Z["Zotero · literature & metadata"] --> I["Tencent ima · hosted knowledge base"]
+    Z --> L["Local RAG · PDF / WebDAV"]
+    I --> R["Evidence retrieval · source tracking"]
+    L --> R
+    A["Electrochemistry · CV / LSV / ECSA"] --> D["Materials data · sample ID / units / QC"]
+    X["XRD · phase / domain size / ordering"] --> D
+    S["Synthesis · composition / process"] --> D
+    D --> V["Model validation · Ridge / Gaussian process"]
+    V --> B["Bayesian optimization · candidate screening"]
+    R --> H["Research Copilot · evidence + model output"]
+    B --> H
+    H --> G{"Scientist review"}
+    G --> E["Selected experiment · synthesis & testing"]
+    E --> D
+    classDef existing fill:#e4f0fa,stroke:#52799a,color:#19364b
+    classDef prototype fill:#fff2d8,stroke:#b38b39,color:#49380d
+    classDef planned fill:#f0eafa,stroke:#9274b0,color:#3a2851
+    class Z,I,A,X,S,D,V,B existing
+    class L,R,H prototype
+    class G,E planned
+```
+
+| Layer | Repository / capability | Status |
+| --- | --- | --- |
+| Literature ingestion | [Zotero Scholar Bridge](https://github.com/ANDYPENG09/zotero-scholar-bridge), [Zotero ima sync](https://github.com/ANDYPENG09/zotero-ima-sync) | Existing tools |
+| Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | Prototype in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2); live authentication and retrieval not yet verified |
+| Scientific analysis | [Electrochemistry analyzer](https://github.com/ANDYPENG09/PEMFC-Electrocatalyst-Activity-Analyzer), [XRD toolkit](https://github.com/ANDYPENG09/xrd-toolkit) | Existing tools; automated XRD integration planned |
+| Materials informatics | Structured experiment CSV, sample-ID joins, QC, units and provenance | Existing CSV workflow; unified database planned |
+| Machine learning & experiment planning | Ridge / Matérn GP, batch validation, constrained Bayesian optimization | Existing planner; real IrOx retrospective validation and synthetic closed-loop demonstration |
+| Research Copilot | Combine literature evidence with independent model reports | Prototype; autonomous orchestration and prospective experimental validation planned |
+
+**Research principle:** evidence-grounded hypotheses and model predictions are distinct. Experimental decisions remain subject to scientist review. This diagram describes the integration architecture, not a claim of a fully deployed autonomous laboratory. No private literature, credentials or proprietary raw experimental data are included.
+
 ## Start with model validation
 
 The [IrOx OER case](examples/irox_screening/README.md) compares a ridge baseline and a Matérn GP on 20 independent synthesis batches. It uses 65 annotated LSV scans, including commercial controls, to estimate repeatability and define the first-scan response. Within the 350–500 °C historical subset, first-scan leave-one-batch-out RMSE was **16.8 mV for ridge** and **24.3 mV for the GP**. Use this result for retrospective recipe screening. Confirm predictive accuracy and uncertainty before using acquisition scores to justify new recipes.
