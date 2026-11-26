@@ -9,7 +9,7 @@ from pathlib import Path
 import rag
 
 BASE = "https://ima.qq.com/openapi/wiki/v1/"
-ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge", "get_addable_knowledge_base_list"}
+ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge", "get_addable_knowledge_base_list", "get_media_info"}
 
 class ImaError(RuntimeError):
     pass
@@ -107,14 +107,30 @@ class ImaClient:
                 if isinstance(key,str) and key:
                     found[key] = {"id":key,"name":name or "(unnamed)"}
             return list(found.values())
-        if query:
-            return normalize(self.pages("search_knowledge_base",{"query":query,"limit":20},"info_list",max_pages))
-        found = normalize(self.pages("search_knowledge_base",{"query":"","limit":20},"info_list",max_pages))
-        if found:
-            return found
-        # Empty search can omit personal writable libraries. Read-only discovery
-        # via the same endpoint used in Zotero IMA Sync; no write action performed.
-        return normalize(self.pages("get_addable_knowledge_base_list",{"limit":50},"addable_knowledge_base_list",max_pages))
+        found = normalize(self.pages("search_knowledge_base",{"query":query,"limit":20},"info_list",max_pages))
+        if not found and not query:
+            found = normalize(self.pages("get_addable_knowledge_base_list",{"limit":50},"addable_knowledge_base_list",max_pages))
+        # Resolve missing display names using the dedicated metadata endpoint.
+        missing = [x for x in found if x["name"] == "(unnamed)"]
+        for start in range(0,len(missing),20):
+            batch = missing[start:start+20]
+            try:
+                details = self.post("get_knowledge_base",{"ids":[x["id"] for x in batch]})
+                infos = details.get("infos",{})
+                if isinstance(infos,dict):
+                    for x in batch:
+                        info = infos.get(x["id"],{})
+                        if isinstance(info,dict):
+                            basic = info.get("basic_info")
+                            basic = basic if isinstance(basic,dict) else {}
+                            name = clean(info.get("name") or basic.get("name") or info.get("title") or info.get("knowledge_base_name") or "")
+                            if name:
+                                x["name"] = name
+            except ImaError as exc:
+                print("Library name lookup:",str(exc))
+        return found
+    def media_info(self, media_id):
+        return self.post("get_media_info",{"media_id":media_id})
     def browse(self, kb, folder=None, max_pages=3):
         payload={"knowledge_base_id":kb,"limit":50}
         if folder:
@@ -156,7 +172,7 @@ def packet(query, evidence, backend, bo_report=None):
         output["bo_warning"]="Independent existing model output, not a literature-derived prediction or experimental validation."
     return output
 
-def doctor(query, library_query="", kb=None):
+def doctor(query, library_query="", kb=None, probe_media=False):
     """Interactive read-only smoke check; never prints credentials or excerpts."""
     client_id = os.getenv("IMA_CLIENT_ID") or os.getenv("IMA_OPENAPI_CLIENTID") or input("ima Client ID: ").strip()
     api_key = os.getenv("IMA_API_KEY") or os.getenv("IMA_OPENAPI_APIKEY") or getpass.getpass("ima API Key: ").strip()
@@ -174,16 +190,31 @@ def doctor(query, library_query="", kb=None):
     items = client.browse(library["id"],max_pages=1)
     hits = client.search(library["id"],query,10,max_pages=2)
     evidence = packet(query,hits,"ima")
-    return {"authentication":"request accepted","libraries_found":len(libraries),
+    result = {"authentication":"request accepted","libraries_found":len(libraries),
             "root_items_in_first_page":len(items),"search_hits":len(hits),
             "snippet_hits":len(evidence["evidence"]),"title_only_hits":len(evidence["discovery_only"]),
             "full_text_verified":False,
-            "next_step":"Use local Zotero PDF retrieval when snippets are absent or insufficient."}
+            "next_step":"Probe media access or use local Zotero PDF retrieval when snippets are absent or insufficient."}
+    if probe_media:
+        result["media_probes"] = []
+        for hit in hits[:3]:
+            try:
+                info = client.media_info(hit["media_id"])
+                url_info = info.get("url_info")
+                url_info = url_info if isinstance(url_info,dict) else {}
+                result["media_probes"].append({"media_type":info.get("media_type"),
+                    "has_access_url":bool(url_info.get("url")),
+                    "has_note_reference":bool(info.get("notebook_ext_info")),
+                    "response_fields":sorted(info.keys())})
+            except ImaError as exc:
+                result["media_probes"].append({"error":str(exc)})
+        result["note"]="A returned access URL is not yet proof of successful PDF download or extraction."
+    return result
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest="command",required=True)
-    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx"); a.add_argument("--library-query",default=""); a.add_argument("--kb")
+    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx"); a.add_argument("--library-query",default=""); a.add_argument("--kb"); a.add_argument("--probe-media",action="store_true")
     a=sub.add_parser("libraries"); a.add_argument("--query",default="")
     a=sub.add_parser("browse"); a.add_argument("--kb",required=True); a.add_argument("--folder")
     a=sub.add_parser("ask")
@@ -198,7 +229,7 @@ def main():
     args=parser.parse_args()
     try:
         if args.command=="doctor":
-            result=doctor(args.query,args.library_query,args.kb)
+            result=doctor(args.query,args.library_query,args.kb,args.probe_media)
         elif args.command=="libraries":
             result={"libraries":ImaClient().libraries(args.query),"max_pages":3}
         elif args.command=="browse":
