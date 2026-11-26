@@ -16,6 +16,19 @@ A deployed cloud-based scientific AI environment and modular materials R&D toolk
 
 [IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
 
+## Live scientific AI demonstration
+
+Operator-run AnythingLLM demo (2026-11-26), using DeepSeek-V3.2 and a five-paper electrocatalysis literature collection. Five PDFs were uploaded; the captured workspace screen shows four documents assigned and the fifth (Wei 2019) awaiting transfer.
+
+| Demonstration | Observed output |
+| --- | --- |
+| Literature ingestion | Five uploaded PDFs; four assigned to the research workspace in the captured screen |
+| Scientific question answering | Literature-assisted explanation of why RDE OER activity does not necessarily translate to PEMWE cell performance |
+| Structured evidence extraction | Park et al. (2025): reported particle sizes of 24, 13 and 4 nm and BET areas of 19.8, 92.8 and 202.2 m²/g |
+| Experiment design | Draft multi-objective IrOx optimization plan, distinguishing literature evidence from experimental assumptions |
+
+These are qualitative demonstrations, not a retrieval-accuracy benchmark. Extracted values and citations require source verification. The generated experiment design is a proposal, not execution of the repository's Bayesian optimizer; automated RAG-to-BO orchestration remains a development milestone.
+
 ## Materials Research Copilot — AI4M/S workflow
 
 A modular research architecture connecting scientific literature, structured experimental evidence, characterization software and uncertainty-aware experiment planning.
