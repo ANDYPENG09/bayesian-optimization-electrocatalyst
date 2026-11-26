@@ -19,6 +19,50 @@ literature retrieval layer, not a validated autonomous scientist.
   experiments. The retrieval CLI can attach a local BO JSON report for joint human review;
   literature retrieval does not automatically alter acquisition or material predictions.
 
+## Connect to Tencent ima first (recommended for existing users)
+
+The hosted ima library remains the primary literature discovery backend; the local
+RAG remains an independent option for full-text analysis. The adapter uses the
+documented library search, list and keyword-search request shapes. API results may
+contain only titles or short highlighted text. It does not assume full-text access
+or the same semantic retrieval behavior as the ima application. Title-only hits
+are separated from evidence and never passed to the generator as supporting text.
+
+### Verify your connection
+
+1. Sign in at https://ima.qq.com/agent-interface and obtain Client ID and API Key.
+2. From the repository root on your own computer, run:
+
+```bash
+python research_copilot/copilot.py doctor --query "IrOx"
+```
+
+The program prompts for credentials (API Key input is hidden) and lets you select
+an accessible library by number. It reports library count, root item count on the
+first page, search hits, snippet hits and title-only hits. It neither writes to
+ima nor prints the API key, raw excerpts, or private library ID in the JSON report.
+No credential or document is persisted. The library names shown in the interactive
+selection may be private. A successful check confirms only the tested operations,
+not full-text access. If the query has no hits, try a title you know is present.
+
+Optional unattended use: set IMA_CLIENT_ID, IMA_API_KEY and IMA_KB_ID privately.
+The following commands print library IDs or search data; do not publish the output.
+
+```bash
+python research_copilot/copilot.py libraries
+python research_copilot/copilot.py ask "IrOx OER" --backend ima --kb YOUR_API_KB_ID
+python research_copilot/copilot.py ask "IrOx OER" --backend local --db /path/to/private/evidence.sqlite
+```
+
+For title-only results, open the matched paper in Zotero/ima or index the authorized
+local PDF with rag.py. No automatic title-to-PDF mapping is claimed yet. Do not
+use unofficial session cookies or bypass provider permissions.
+
+API reference mirrors: [request/response reference](https://github.com/guohuiyuan/ima-skill/blob/main/knowledge-base/references/api.md);
+[reported access limitations](https://github.com/ninggui/ima-knowledge-base).
+The adapter accepts both retcode/data and code/data envelopes. Live account access
+has not been verified; mocked tests are included, not a substitute for live testing.
+
 ## Quick start
 Run from repository root. Keep databases and PDFs outside the git working tree.
 Install Python 3.10+, then:
