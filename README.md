@@ -29,6 +29,18 @@ Operator-run AnythingLLM demo (2026-11-26), using DeepSeek-V3.2 and a five-paper
 
 These are qualitative demonstrations, not a retrieval-accuracy benchmark. Extracted values and citations require source verification. The generated experiment design is a proposal, not execution of the repository's Bayesian optimizer; automated RAG-to-BO orchestration remains a development milestone.
 
+## MCP-enabled scientific computing — verified
+
+On 2026-11-26, the deployed AnythingLLM / DeepSeek-V3.2 agent successfully invoked two Python scientific tools over MCP Streamable HTTP. The host-side research engine uses Python 3.12 and MCP SDK 1.30.0, with scientific dependencies in an isolated virtual environment.
+
+- Tool discovery: 2/2 tools enabled.
+- `research_engine_status`: returned the live scientific library versions.
+- `calculate_overpotential`: returned 257.3 mV for 1.4873 V vs. RHE using a 1.23 V reference.
+- Server logs independently confirmed two CallToolRequest events with HTTP 200 responses.
+- MCP service communicates over the internal Docker bridge, without a public MCP endpoint.
+
+This verifies actual agent-to-Python execution, not merely LLM-generated arithmetic. Integration of the existing Bayesian optimization planner and characterization tools is the next milestone; the full RAG-to-BO workflow is not yet verified.
+
 ## Materials Research Copilot — AI4M/S workflow
 
 A modular research architecture connecting scientific literature, structured experimental evidence, characterization software and uncertainty-aware experiment planning.
