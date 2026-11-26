@@ -1,5 +1,6 @@
 """Read-only ima OpenAPI backend and unified literature/BO evidence CLI."""
 import argparse
+import getpass
 import json
 import os
 from html.parser import HTMLParser
@@ -9,7 +10,7 @@ from urllib.error import HTTPError, URLError
 import rag
 
 BASE = "https://ima.qq.com/openapi/wiki/v1/"
-ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge", "get_media_info"}
+ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge"}
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -31,6 +32,14 @@ def clean(value):
     parser = TextOnly()
     parser.feed(value)
     return " ".join("".join(parser.parts).split())
+
+def response_data(result):
+    if not isinstance(result,dict):
+        raise ImaError("Unexpected ima response.")
+    status = result.get("retcode",result.get("code"))
+    if status != 0 or not isinstance(result.get("data"),dict):
+        raise ImaError("ima request failed; API code: " + str(status if isinstance(status,int) else "unknown"))
+    return result["data"]
 
 class ImaClient:
     def __init__(self, client_id=None, api_key=None):
@@ -59,10 +68,7 @@ class ImaClient:
             result=json.loads(raw)
         except ValueError:
             raise ImaError("ima returned non-JSON data.") from None
-        if not isinstance(result,dict) or result.get("code") != 0 or not isinstance(result.get("data"),dict):
-            code=result.get("code") if isinstance(result,dict) else None
-            raise ImaError("ima request failed; API code: " + str(code if isinstance(code,int) else "unknown"))
-        return result["data"]
+        return response_data(result)
     def pages(self, action, payload, field, max_pages=3):
         cursor=""
         seen={cursor}
@@ -73,7 +79,7 @@ class ImaClient:
                 raise ImaError("Unexpected ima response: missing list " + field)
             yield from items
             cursor=data.get("next_cursor")
-            if data.get("is_end") or not cursor:
+            if data.get("is_end") is True or not cursor:
                 return
             if not isinstance(cursor,str) or cursor in seen:
                 raise ImaError("Unexpected repeated or invalid pagination cursor.")
@@ -95,6 +101,8 @@ class ImaClient:
             if not isinstance(item,dict):
                 continue
             mid=item.get("media_id")
+            if item.get("folder_id") and not mid:
+                continue
             if not isinstance(mid,str) or not mid or mid.startswith("folder_") or mid in seen:
                 continue
             seen.add(mid)
@@ -121,9 +129,34 @@ def packet(query, evidence, backend, bo_report=None):
         output["bo_warning"]="Independent existing model output, not a literature-derived prediction or experimental validation."
     return output
 
+def doctor(query):
+    """Interactive read-only smoke check; never prints credentials or excerpts."""
+    client_id = os.getenv("IMA_CLIENT_ID") or os.getenv("IMA_OPENAPI_CLIENTID") or input("ima Client ID: ").strip()
+    api_key = os.getenv("IMA_API_KEY") or os.getenv("IMA_OPENAPI_APIKEY") or getpass.getpass("ima API Key: ").strip()
+    client = ImaClient(client_id,api_key)
+    libraries = client.libraries()
+    if not libraries:
+        return {"authentication":"request accepted","libraries_found":0,"warning":"No accessible libraries found in first three pages."}
+    print("Accessible libraries (first three pages):")
+    for idx, lib in enumerate(libraries,1):
+        print(f"{idx}. {lib['name']}")
+    selected = input("Select library number: ").strip()
+    if not selected.isdigit() or not 1 <= int(selected) <= len(libraries):
+        raise ImaError("Invalid library selection.")
+    library = libraries[int(selected)-1]
+    items = client.browse(library["id"],max_pages=1)
+    hits = client.search(library["id"],query,10,max_pages=2)
+    evidence = packet(query,hits,"ima")
+    return {"authentication":"request accepted","libraries_found":len(libraries),
+            "root_items_in_first_page":len(items),"search_hits":len(hits),
+            "snippet_hits":len(evidence["evidence"]),"title_only_hits":len(evidence["discovery_only"]),
+            "full_text_verified":False,
+            "next_step":"Use local Zotero PDF retrieval when snippets are absent or insufficient."}
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest="command",required=True)
+    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx")
     a=sub.add_parser("libraries"); a.add_argument("--query",default="")
     a=sub.add_parser("browse"); a.add_argument("--kb",required=True); a.add_argument("--folder")
     a=sub.add_parser("ask")
@@ -137,7 +170,9 @@ def main():
     a.add_argument("--bo-report",type=Path)
     args=parser.parse_args()
     try:
-        if args.command=="libraries":
+        if args.command=="doctor":
+            result=doctor(args.query)
+        elif args.command=="libraries":
             result={"libraries":ImaClient().libraries(args.query),"max_pages":3}
         elif args.command=="browse":
             result={"items":ImaClient().browse(args.kb,args.folder),"max_pages":3}
