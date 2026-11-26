@@ -2,44 +2,58 @@
 
 **Materials Research Copilot | Scientific AI · Materials Informatics · Experiment Optimization**
 
-![Cloud demo](https://img.shields.io/badge/Cloud%20demo-deployed-brightgreen) ![LLM API](https://img.shields.io/badge/LLM%20API-validated-brightgreen) ![Bayesian optimization](https://img.shields.io/badge/BO-v1.1.0-blue)
+![Cloud demo](https://img.shields.io/badge/Cloud%20demo-deployed-brightgreen) ![MCP tools](https://img.shields.io/badge/MCP-3%20tools-brightgreen) ![RAG%20%2B%20BO](https://img.shields.io/badge/RAG%20%2B%20BO-demonstrated-blue) ![Bayesian optimization](https://img.shields.io/badge/BO-v1.1.0-blue)
 
 A deployed cloud-based scientific AI environment and modular materials R&D toolkit, connecting literature knowledge infrastructure, experimental data, characterization and uncertainty-aware Bayesian optimization. The Gaussian-process planner provides reproducible candidate screening, constraint forecasts and uncertainty estimates.
 
-### Platform highlights
+## Integrated scientific AI demo
 
-- **Cloud deployment completed:** Docker Compose, AnythingLLM, authenticated HTTPS access and an isolated Cloudflare Tunnel on a lightweight 2-vCPU / 4-GB instance.
-- **Scientific AI inference validated:** DeepSeek-V3.2 through an external API; BGE-M3 and LanceDB configured for literature retrieval.
-- **Scientific computing toolkit:** electrochemical activity analysis, XRD characterization, TEM/HRTEM prototype and Bayesian experiment planning.
-- **Materials R&D case study:** retrospective IrOx OER model validation and reproducible synthetic closed-loop optimization.
-- **Literature connectivity:** Zotero and Tencent ima adapters, with live ima authentication and keyword retrieval verified.
+**Literature-grounded research reasoning + real Python Bayesian optimization via MCP.** Demonstrated on 26 November 2026 using AnythingLLM, DeepSeek-V3.2 and the repository's BO v1.1.0 planner.
 
-[IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
+[Full demonstration gallery (20 screenshots)](docs/demo/PORTFOLIO.md) · [Deployment notes](docs/ai4ms-deployment.md) · [IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md)
 
-## Live scientific AI demonstration
-
-Operator-run AnythingLLM demo (2026-11-26), using DeepSeek-V3.2 and a five-paper electrocatalysis literature collection. Five PDFs were uploaded; the captured workspace screen shows four documents assigned and the fifth (Wei 2019) awaiting transfer.
-
-| Demonstration | Observed output |
+| Demonstration metric | Observed result |
 | --- | --- |
-| Literature ingestion | Five uploaded PDFs; four assigned to the research workspace in the captured screen |
-| Scientific question answering | Literature-assisted explanation of why RDE OER activity does not necessarily translate to PEMWE cell performance |
-| Structured evidence extraction | Park et al. (2025): reported particle sizes of 24, 13 and 4 nm and BET areas of 19.8, 92.8 and 202.2 m²/g |
-| Experiment design | Draft multi-objective IrOx optimization plan, distinguishing literature evidence from experimental assumptions |
+| MCP tools registered | 3/3 |
+| Synthetic training observations | 9 (8 feasible) |
+| Recommended experimental designs | 3 |
+| Predicted feasibility | approximately 84.45% |
+| Integrated run algorithm trace duration | 424.1 ms (excludes LLM, transport and process startup) |
+| Model quality | Review required; not converged |
 
-These are qualitative demonstrations, not a retrieval-accuracy benchmark. Extracted values and citations require source verification. The generated experiment design is a proposal, not execution of the repository's Bayesian optimizer; automated RAG-to-BO orchestration remains a development milestone.
+### 1. Integrated literature and model recommendations
 
-## MCP-enabled scientific computing — verified
+![Integrated RAG and BO recommendations](docs/demo/05-integrated-workflow/18-integrated-recommendations.png)
 
-On 2026-11-26, the deployed AnythingLLM / DeepSeek-V3.2 agent successfully invoked two Python scientific tools over MCP Streamable HTTP. The host-side research engine uses Python 3.12 and MCP SDK 1.30.0, with scientific dependencies in an isolated virtual environment.
+The agent combines a five-paper literature collection with numerical recommendations from the independent Matérn 5/2 GP planner. Literature is used to interpret and critique the fixed synthetic model output, not to train the GP or dynamically alter its search space.
 
-- Tool discovery: 2/2 tools enabled.
-- `research_engine_status`: returned the live scientific library versions.
-- `calculate_overpotential`: returned 257.3 mV for 1.4873 V vs. RHE using a 1.23 V reference.
-- Server logs independently confirmed two CallToolRequest events with HTTP 200 responses.
-- MCP service communicates over the internal Docker bridge, without a public MCP endpoint.
+### 2. Evidence provenance and scientific limitations
 
-This verifies actual agent-to-Python execution, not merely LLM-generated arithmetic. Integration of the existing Bayesian optimization planner and characterization tools is the next milestone; the full RAG-to-BO workflow is not yet verified.
+![Evidence provenance and computational trace](docs/demo/05-integrated-workflow/20-evidence-provenance.png)
+
+The report distinguishes published evidence, computation, model forecasts and AI hypotheses. The integrated report contains a fresh trace and reproduces independently computed BO values; corresponding backend call and retrieval logs have not been independently audited. See the [scientific audit](docs/demo/PORTFOLIO.md) for errors in the original AI report, including electrolyte pH versus synthesis pH, total catalyst versus Ir loading, and the incorrect report date. The screenshots are authentic outputs, not validated scientific conclusions.
+
+### 3. Scientific literature retrieval
+
+![Scientific literature retrieval](docs/demo/05-integrated-workflow/16-literature-retrieval.png)
+
+### 4. Structured materials data extraction
+
+![Structured materials data extraction](docs/demo/02-scientific-rag/04-data-extraction.png)
+
+The demonstration extracts reported particle sizes of 24, 13 and 4 nm and BET surface areas of 19.8, 92.8 and 202.2 m²/g from Park et al. (2025). Source verification is required before reuse.
+
+### 5. MCP-enabled scientific computing
+
+![MCP tool registration](docs/demo/03-mcp-integration/06-tool-registration.png)
+
+Python 3.12, MCP SDK 1.30.0 and Streamable HTTP connect AnythingLLM to a host-side scientific engine over the internal Docker bridge. Two initial tool calls (environment status and OER overpotential) were confirmed in server logs; the BO tool was subsequently registered and produced numerical results matching the independent CLI run. See the [execution evidence](docs/demo/PORTFOLIO.md).
+
+### 6. Lightweight cloud deployment
+
+![Cloud deployment verification](docs/demo/01-infrastructure/01-cloud-deployment.png)
+
+Docker Compose, AnythingLLM, external LLM inference, LanceDB and authenticated HTTPS were demonstrated on a 2-vCPU / 4-GB Linux instance. This is a point-in-time proof of concept, not a permanently hosted production service.
 
 ## Materials Research Copilot — AI4M/S workflow
 
@@ -74,19 +88,19 @@ flowchart TD
 | Layer | Repository / capability | Status |
 | --- | --- | --- |
 | Literature ingestion | [Zotero Scholar Bridge](https://github.com/ANDYPENG09/zotero-scholar-bridge), [Zotero ima sync](https://github.com/ANDYPENG09/zotero-ima-sync) | Existing tools |
-| Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | Prototype in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2); API authentication, library enumeration and keyword retrieval verified by operator; PDF download and parsing pending |
+| Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | AnythingLLM PDF ingestion and literature QA demonstrated; separate ima adapter in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2) has verified authentication, enumeration and keyword retrieval; ima PDF download and WebDAV ingestion pending |
 | Scientific analysis | [Electrochemistry analyzer](https://github.com/ANDYPENG09/PEMFC-Electrocatalyst-Activity-Analyzer), [XRD toolkit](https://github.com/ANDYPENG09/xrd-toolkit) | Existing tools; automated XRD integration planned |
 | TEM / HRTEM | [TNLA v0.1](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/tem) · lattice spacing, particle sizing, geometric dispersion | Local prototype; real TIFF and UI validation pending |
 | BET / porosimetry | [Quantachrome adsorption analysis](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/bet) · planned, no calculation yet | Placeholder |
 | Materials informatics | Structured experiment CSV, sample-ID joins, QC, units and provenance | Existing CSV workflow; unified database planned |
 | Machine learning & experiment planning | Ridge / Matérn GP, batch validation, constrained Bayesian optimization | Existing planner; real IrOx retrospective validation and synthetic closed-loop demonstration |
-| Research Copilot | Combine literature evidence with independent model reports | Prototype; autonomous orchestration and prospective experimental validation planned |
+| Research Copilot | Combine literature evidence with independent model reports | Integrated RAG + BO report demonstrated; autonomous orchestration, backend audit and prospective experimental validation pending |
 
 **Research principle:** evidence-grounded hypotheses and model predictions are distinct. Experimental decisions remain subject to scientist review. This diagram describes the integration architecture, not a claim of a fully deployed autonomous laboratory. No private literature, credentials or proprietary raw experimental data are included.
 
 ## Deployment status
 
-**Cloud Demo — deployment complete.** The platform runs AnythingLLM with external DeepSeek-V3.2 inference, BGE-M3 embedding configuration and LanceDB storage, protected by application authentication and HTTPS through an independent Cloudflare Tunnel. Idle container memory measured approximately 362 MiB.
+**Cloud Demo — deployment demonstrated.** During the demonstration the platform ran AnythingLLM with external DeepSeek-V3.2 inference, BGE-M3 embedding configuration and LanceDB storage, protected by application authentication and HTTPS through an independent Cloudflare Tunnel. Idle container memory measured approximately 362 MiB.
 
 See the [technical deployment notes](docs/ai4ms-deployment.md) for verification scope, integration milestones and the separate NAS production architecture.
 
