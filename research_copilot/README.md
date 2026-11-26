@@ -57,7 +57,27 @@ python research_copilot/rag.py --db ~/materials-private/evidence.sqlite sync-zot
 This reads metadata/abstracts only unless local storage is supplied. WebDAV
 normally stores attachment archives, not complete bibliographic metadata.
 Use Zotero's built-in WebDAV sync to populate local storage first.
-Direct WebDAV download is not implemented; do not expose credentials or localhost publicly.
+Direct read-only WebDAV ingestion is available as an experimental adapter.
+Use a private local database outside the repository. Zotero appends /zotero/
+to the configured WebDAV URL; the adapter does likewise. No PUT, DELETE or
+remote modification is performed.
+
+```bash
+python research_copilot/webdav.py --db ~/materials-private/evidence.sqlite --url https://YOUR-WEBDAV-HOST/dav/ --local --limit 10
+```
+
+The adapter prompts for WebDAV credentials, or reads WEBDAV_USER and
+WEBDAV_PASSWORD from the local environment. It pairs attachment keys with Zotero
+metadata and downloads the corresponding ZIP archives, parses a single
+unambiguous PDF, and retains title, DOI and physical PDF page. Use
+`--user-id YOUR_NUMERIC_ID` instead of `--local` for server mode with the
+read-only ZOTERO_API_KEY environment variable. Optionally use
+`--collection-key KEY` to select one direct collection or `--refresh` to
+re-index existing attachments. Authentication and live server compatibility
+must be verified locally. Existing indexed files are skipped by default; refresh
+does not automatically detect changed or deleted remote attachments. No
+credentials, PDF data or database files should be committed. Do not expose
+credentials or localhost publicly.
 
 ### Optional generation
 Install `openai`, set OPENAI_API_KEY, RAG_MODEL and optionally OPENAI_BASE_URL
