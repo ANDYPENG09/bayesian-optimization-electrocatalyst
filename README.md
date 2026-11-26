@@ -16,6 +16,8 @@ flowchart TD
     L --> R
     A["Electrochemistry · CV / LSV / ECSA"] --> D["Materials data · sample ID / units / QC"]
     X["XRD · phase / domain size / ordering"] --> D
+    T["TEM / HRTEM · lattice / size / dispersion"] --> D
+    P["BET · area / pore structure"] -.-> D
     S["Synthesis · composition / process"] --> D
     D --> V["Model validation · Ridge / Gaussian process"]
     V --> B["Bayesian optimization · candidate screening"]
@@ -28,8 +30,8 @@ flowchart TD
     classDef prototype fill:#fff2d8,stroke:#b38b39,color:#49380d
     classDef planned fill:#f0eafa,stroke:#9274b0,color:#3a2851
     class Z,I,A,X,S,D,V,B existing
-    class L,R,H prototype
-    class G,E planned
+    class L,R,H,T prototype
+    class G,E,P planned
 ```
 
 | Layer | Repository / capability | Status |
@@ -37,6 +39,8 @@ flowchart TD
 | Literature ingestion | [Zotero Scholar Bridge](https://github.com/ANDYPENG09/zotero-scholar-bridge), [Zotero ima sync](https://github.com/ANDYPENG09/zotero-ima-sync) | Existing tools |
 | Literature retrieval | Tencent ima API adapter and local PDF/WebDAV retrieval | Prototype in [PR #2](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/pull/2); live authentication and retrieval not yet verified |
 | Scientific analysis | [Electrochemistry analyzer](https://github.com/ANDYPENG09/PEMFC-Electrocatalyst-Activity-Analyzer), [XRD toolkit](https://github.com/ANDYPENG09/xrd-toolkit) | Existing tools; automated XRD integration planned |
+| TEM / HRTEM | [TNLA v0.1](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/tem) · lattice spacing, particle sizing, geometric dispersion | Local prototype; real TIFF and UI validation pending |
+| BET / porosimetry | [Quantachrome adsorption analysis](https://github.com/ANDYPENG09/bayesian-optimization-electrocatalyst/tree/main/research_tools/bet) · planned, no calculation yet | Placeholder |
 | Materials informatics | Structured experiment CSV, sample-ID joins, QC, units and provenance | Existing CSV workflow; unified database planned |
 | Machine learning & experiment planning | Ridge / Matérn GP, batch validation, constrained Bayesian optimization | Existing planner; real IrOx retrospective validation and synthetic closed-loop demonstration |
 | Research Copilot | Combine literature evidence with independent model reports | Prototype; autonomous orchestration and prospective experimental validation planned |
