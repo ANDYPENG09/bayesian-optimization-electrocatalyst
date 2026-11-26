@@ -4,6 +4,9 @@ import getpass
 import json
 import os
 import subprocess
+import tempfile
+import shutil
+from urllib.parse import urlsplit
 from html.parser import HTMLParser
 from pathlib import Path
 import rag
@@ -172,7 +175,66 @@ def packet(query, evidence, backend, bo_report=None):
         output["bo_warning"]="Independent existing model output, not a literature-derived prediction or experimental validation."
     return output
 
-def doctor(query, library_query="", kb=None, probe_media=False):
+def probe_pdf(info):
+    """Verify one PDF locally; do not print signed URLs, text or retain files."""
+    url_info = info.get("url_info")
+    url = url_info.get("url") if isinstance(url_info,dict) else None
+    if not isinstance(url,str) or not url or any(ord(c)<33 or ord(c)>126 for c in url):
+        return {"error":"Missing or invalid media URL."}
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        permitted = (parsed.scheme == "https" and parsed.port in (None,443)
+                     and not parsed.username and not parsed.password
+                     and (host == "ima.qq.com" or host.endswith(".ima.qq.com")
+                          or host.endswith(".myqcloud.com")))
+    except ValueError:
+        return {"error":"Malformed media URL."}
+    if not permitted:
+        return {"error":"Media host not on download allowlist.", "host":host}
+    if not shutil.which("pdftotext"):
+        return {"error":"Install poppler-utils to extract PDF text."}
+    cap = 25*1024*1024
+    with tempfile.TemporaryDirectory(prefix="ima-probe-") as tmp:
+        path = Path(tmp)/"probe.pdf"
+        try:
+            # URL travels through private stdin, not command line; no ima headers,
+            # redirects, proxy or curl config are used for the media download.
+            with subprocess.Popen(["curl","-q","-4","--http2","-sS",
+                                   "--noproxy","*","--proto","=https",
+                                   "--connect-timeout","15","--max-time","90",
+                                   "--max-filesize",str(cap),"--fail","--config","-"],
+                                  stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL) as proc:
+                proc.stdin.write(("url = "+json.dumps(url)+"\n").encode("ascii"))
+                proc.stdin.close()
+                count = 0
+                with path.open("wb") as dest:
+                    while True:
+                        block = proc.stdout.read(65536)
+                        if not block:
+                            break
+                        count += len(block)
+                        if count > cap:
+                            proc.kill()
+                            return {"error":"PDF download exceeded 25 MiB cap."}
+                        dest.write(block)
+                if proc.wait(timeout=5):
+                    return {"error":"Media download failed.", "curl_exit":proc.returncode,"host":host}
+            with path.open("rb") as handle:
+                if b"%PDF-" not in handle.read(1024):
+                    return {"error":"Downloaded media is not a PDF.", "download_bytes":count,"host":host}
+            extracted = subprocess.run(["pdftotext","-f","1","-l","3","-enc","UTF-8",str(path),"-"],
+                                       capture_output=True,timeout=30,check=False)
+            chars = len(extracted.stdout.decode("utf-8",errors="replace").strip())
+            return {"pdf_verified":True,"download_bytes":count,
+                    "sample_pages_requested":3,"sample_text_chars":chars,
+                    "sample_text_verified":extracted.returncode==0 and chars>0,
+                    "extract_exit":extracted.returncode}
+        except (OSError,subprocess.TimeoutExpired):
+            return {"error":"Media download or extraction failed locally."}
+
+def doctor(query, library_query="", kb=None, probe_media=False, test_pdf=False):
     """Interactive read-only smoke check; never prints credentials or excerpts."""
     client_id = os.getenv("IMA_CLIENT_ID") or os.getenv("IMA_OPENAPI_CLIENTID") or input("ima Client ID: ").strip()
     api_key = os.getenv("IMA_API_KEY") or os.getenv("IMA_OPENAPI_APIKEY") or getpass.getpass("ima API Key: ").strip()
@@ -195,13 +257,15 @@ def doctor(query, library_query="", kb=None, probe_media=False):
             "snippet_hits":len(evidence["evidence"]),"title_only_hits":len(evidence["discovery_only"]),
             "full_text_verified":False,
             "next_step":"Probe media access or use local Zotero PDF retrieval when snippets are absent or insufficient."}
-    if probe_media:
+    if probe_media or test_pdf:
         result["media_probes"] = []
         for hit in hits[:3]:
             try:
                 info = client.media_info(hit["media_id"])
                 url_info = info.get("url_info")
                 url_info = url_info if isinstance(url_info,dict) else {}
+                if test_pdf and "pdf_probe" not in result and info.get("media_type") in (1,"1") and url_info.get("url"):
+                    result["pdf_probe"] = probe_pdf(info)
                 result["media_probes"].append({"media_type":info.get("media_type"),
                     "has_access_url":bool(url_info.get("url")),
                     "has_note_reference":bool(info.get("notebook_ext_info")),
@@ -209,12 +273,14 @@ def doctor(query, library_query="", kb=None, probe_media=False):
             except ImaError as exc:
                 result["media_probes"].append({"error":str(exc)})
         result["note"]="A returned access URL is not yet proof of successful PDF download or extraction."
+    if test_pdf and "pdf_probe" not in result:
+        result["pdf_probe"] = {"error":"No file candidate among first three hits."}
     return result
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     sub=parser.add_subparsers(dest="command",required=True)
-    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx"); a.add_argument("--library-query",default=""); a.add_argument("--kb"); a.add_argument("--probe-media",action="store_true")
+    a=sub.add_parser("doctor"); a.add_argument("--query",default="IrOx"); a.add_argument("--library-query",default=""); a.add_argument("--kb"); a.add_argument("--probe-media",action="store_true"); a.add_argument("--test-pdf",action="store_true")
     a=sub.add_parser("libraries"); a.add_argument("--query",default="")
     a=sub.add_parser("browse"); a.add_argument("--kb",required=True); a.add_argument("--folder")
     a=sub.add_parser("ask")
@@ -229,7 +295,7 @@ def main():
     args=parser.parse_args()
     try:
         if args.command=="doctor":
-            result=doctor(args.query,args.library_query,args.kb,args.probe_media)
+            result=doctor(args.query,args.library_query,args.kb,args.probe_media,args.test_pdf)
         elif args.command=="libraries":
             result={"libraries":ImaClient().libraries(args.query),"max_pages":3}
         elif args.command=="browse":
