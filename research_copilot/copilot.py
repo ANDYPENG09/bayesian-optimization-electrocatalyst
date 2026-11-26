@@ -3,18 +3,13 @@ import argparse
 import getpass
 import json
 import os
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.request import Request, build_opener, HTTPRedirectHandler
-from urllib.error import HTTPError, URLError
 import rag
 
 BASE = "https://ima.qq.com/openapi/wiki/v1/"
 ALLOWED = {"search_knowledge_base", "get_knowledge_base", "get_knowledge_list", "search_knowledge"}
-
-class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
 
 class ImaError(RuntimeError):
     pass
@@ -50,24 +45,39 @@ class ImaClient:
     def post(self, action, payload):
         if action not in ALLOWED:
             raise ImaError("Only allowlisted read operations are permitted.")
-        req = Request(BASE + action, data=json.dumps(payload).encode("utf-8"), headers={
-            "Content-Type":"application/json",
-            "ima-openapi-clientid":self.client_id,
-            "ima-openapi-apikey":self.api_key,
-        }, method="POST")
+        # Credentials are passed via stdin, never command-line arguments.
+        if any(ch in self.client_id + self.api_key for ch in "\r\n\x00"):
+            raise ImaError("Invalid newline or control character in credentials.")
+        headers = ("Content-Type: application/json\n"
+                   + "ima-openapi-clientid: " + self.client_id + "\n"
+                   + "ima-openapi-apikey: " + self.api_key + "\n")
         try:
-            with build_opener(NoRedirect()).open(req, timeout=30) as response:
-                raw = response.read(8*1024*1024+1)
-        except HTTPError as exc:
-            raise ImaError(f"ima HTTP {exc.code}; check permission, credentials or rate limits.") from None
-        except URLError:
-            raise ImaError("ima connection failed; check network.") from None
-        if len(raw) > 8*1024*1024:
+            proc = subprocess.run(
+                ["curl", "-q", "-4", "--http2", "-sS", "--connect-timeout", "15",
+                 "--max-time", "45", "--max-filesize", str(8*1024*1024),
+                 "-X", "POST", "-H", "@-", "--data-binary",
+                 json.dumps(payload, ensure_ascii=True),
+                 "-w", "\\nHTTP_STATUS:%{http_code}", BASE + action],
+                input=headers, text=True, encoding="utf-8", errors="replace",
+                capture_output=True, timeout=50, check=False)
+        except FileNotFoundError:
+            raise ImaError("curl is required; install an HTTP/2-enabled curl.") from None
+        except subprocess.TimeoutExpired:
+            raise ImaError("ima HTTP/2 request timed out.") from None
+        if proc.returncode:
+            raise ImaError(f"ima curl failed (exit {proc.returncode}); check curl HTTP/2 support and connectivity.") 
+        body, sep, status = proc.stdout.rpartition("\nHTTP_STATUS:")
+        if not sep or not status.isdigit():
+            raise ImaError("ima response missing HTTP status.")
+        if len(body.encode("utf-8")) > 8*1024*1024:
             raise ImaError("ima response exceeded size cap.")
         try:
-            result=json.loads(raw)
+            result=json.loads(body)
         except ValueError:
-            raise ImaError("ima returned non-JSON data.") from None
+            raise ImaError(f"ima HTTP {status}: non-JSON response.") from None
+        if status != "200":
+            code=result.get("code",result.get("retcode")) if isinstance(result,dict) else None
+            raise ImaError(f"ima HTTP {status}; API code: {code if isinstance(code,int) else 'unknown'}")
         return response_data(result)
     def pages(self, action, payload, field, max_pages=3):
         cursor=""
