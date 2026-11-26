@@ -1,10 +1,20 @@
-# Bayesian Optimization for Electrocatalyst R&D
+# AI4M/S for Electrocatalyst R&D
 
-Recommend the next experiment from a **Gaussian-process surrogate**, with explicit uncertainty, candidate constraint forecasts and a reproducible record. **v1.1.0**.
+Validate models on electrocatalyst synthesis data and plan experiments with **Bayesian optimization**. The planner uses a Gaussian-process surrogate with uncertainty estimates, constraint forecasts and a reproducible record. Planner **v1.1.0**.
 
-[Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
+[IrOx OER case study](examples/irox_screening/README.md) · [Verified synthetic closed loop](docs/verified-closed-loop.md) · [Configuration](assets/config.yaml) · [PtCo synthetic example](assets/config_ptco_example.yaml) · [Change log](CHANGELOG.md)
 
-## Quick start
+## Start with model validation
+
+The [IrOx OER case](examples/irox_screening/README.md) compares a ridge baseline and a Matérn GP on 20 independent synthesis batches. It uses 65 annotated LSV scans, including commercial controls, to estimate repeatability and define the first-scan response. Within the 350–500 °C historical subset, first-scan leave-one-batch-out RMSE was **16.8 mV for ridge** and **24.3 mV for the GP**. Use this result for retrospective recipe screening. Confirm predictive accuracy and uncertainty before using acquisition scores to justify new recipes.
+
+```bash
+python examples/irox_screening/benchmark.py --output irox_output/demo
+```
+
+The command runs the seeded synthetic example. The [notebook](examples/irox_screening/irox_screening.ipynb) plots held-out errors and accepts the same local input schema as the CLI.
+
+## Bayesian optimization quick start
 
 ```bash
 python -m venv .venv

@@ -21,3 +21,7 @@ Thumbs.db
 .vscode/
 
 demo_output/
+
+# IrOx benchmark inputs and outputs kept locally
+irox_private/
+irox_output/
